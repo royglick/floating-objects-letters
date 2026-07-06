@@ -1,0 +1,94 @@
+/* YALLA 3D — flat, until it isn't (WebGL edition)
+   Layout is still DOM: invisible .letter glyphs occupy real slots so
+   fit()/wrapping/whitespace all work exactly as in the CSS version,
+   and the burst images still live in the slots. The letters themselves
+   are extruded meshes drawn on the #gl canvas, positioned to the slots. */
+
+:root{
+  --paper:#f2efe3;
+  --ink:#1c1a17;
+}
+
+html,body{ margin:0; }
+
+#stage{
+  position:relative;
+  width:100%; min-height:100vh; overflow:hidden; background:var(--paper);
+  display:flex; align-items:center; justify-content:center; flex-direction:column;
+  user-select:none; -webkit-user-select:none; touch-action:none;
+  cursor:pointer;
+}
+
+/* the WebGL overlay — letters render here, above the DOM bursts,
+   below the UI; transparent so the paper + images show through */
+#gl{
+  position:absolute; inset:0; width:100%; height:100%;
+  pointer-events:none; z-index:5;
+}
+
+#word{
+  display:flex; flex-wrap:wrap; justify-content:center;
+  max-width:92%;                           /* wrap budget — fit() sizes the font against this */
+  font-family:"Archivo Black","Arial Black",sans-serif;
+  line-height:1;                           /* font-size is set live by fit() */
+}
+
+.chunk{ display:flex; }                    /* one word — never breaks mid-word */
+
+.slot{
+  position:relative;
+  padding:0 0.02em;                        /* the letter's fixed home — never transforms */
+  --e:0;                                   /* awakeness 0..1 — the burst reads it */
+}
+
+/* DOM letters are measurement ghosts — meshes render instead */
+.letter{ position:relative; visibility:hidden; }
+
+/* asleep letters drop their burst from the render tree — invisible
+   at rest (scale 0) so the browser only pays near the wave */
+.slot.asleep .burst{ display:none; }
+
+/* ---- burst: images exploding from behind the letter ----------
+   Each image flies to its own --dx/--dy (rolled per wake by
+   sketch.js), rotating and scaling with --e — same easing as the
+   pop, collapses home as it ends. Canvas letters draw above them. */
+.burst{ position:absolute; inset:0; pointer-events:none; }
+
+.shape{
+  display:block; position:absolute; left:50%; top:50%;
+  height:auto;                              /* width set per image by sketch.js */
+  opacity:calc(var(--e) * 2);
+  transform:
+    translate(-50%,-50%)
+    translate(calc(var(--dx,0px) * var(--e)), calc(var(--dy,0px) * var(--e)))
+    rotate(calc(var(--rt,0deg) * var(--e)))
+    scale(var(--e));
+  /* idle float: the individual translate/rotate properties COMPOSE with the
+     pop transform above, so the drift rides on top of the explosion.
+     Amplitude/duration/phase are per-shape, set inline by sketch.js. */
+  animation:drift 2s ease-in-out infinite alternate;
+}
+
+@keyframes drift{
+  from{ translate:0 calc(var(--fy,0.05em) * -1); rotate:calc(var(--fr,9deg) * -1); }
+  to{   translate:0 var(--fy,0.05em);            rotate:var(--fr,9deg); }
+}
+
+#hint{
+  margin-top:38px; font:12px ui-monospace,Menlo,Consolas,monospace;
+  letter-spacing:.08em; color:var(--ink); opacity:.4;
+  transition:opacity .8s ease;
+  position:relative; z-index:6;
+}
+#hint.gone{ opacity:0; }
+
+#textbox{
+  position:absolute; top:16px; right:16px; z-index:10;
+  width:min(280px, 60vw);
+  font:14px ui-monospace,Menlo,Consolas,monospace;
+  padding:8px 10px;
+  color:var(--ink); background:rgba(255,255,255,.55);
+  border:1px solid var(--ink); border-radius:4px; outline:none;
+  user-select:text; -webkit-user-select:text;
+}
+#textbox:focus{ background:rgba(255,255,255,.85); }
