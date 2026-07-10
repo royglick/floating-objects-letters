@@ -2,7 +2,7 @@
    All the knobs live here. Change a value, refresh, feel the difference.
    The machinery that consumes these is in sketch.js. */
 
-const WORD  = "EVERY  THING  EVERY WHERE";
+const WORD  = "EVERY\nTHING\nEVERY\nWHERE";
 
 const DEPTH  = 30;    // full extrusion depth (px) when fully awake
 

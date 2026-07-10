@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>meditations</title>
+<style>
+  html,body{ margin:0; height:100%; background:#faf9f6; }
+  body{ display:flex; align-items:center; justify-content:center; }
+  /* fullscreen by default; open with ?reel for the 9:16 composing frame */
+  #stage{
+    position:relative; overflow:hidden; background:#faf9f6;
+    width:100vw; height:100dvh;
+  }
+  /* 9:16 frame — Instagram Reels / Stories (1080×1920), as large as the window allows */
+  body.reel #stage{
+    width:min(100vw, calc(100dvh * 9 / 16));
+    height:auto; aspect-ratio:9 / 16;
+    box-shadow:0 0 0 1px rgba(0,0,0,.08);   /* faint outline so the frame is visible while composing */
+  }
+  #stage canvas{ display:block; }
+  #hint{
+    position:absolute; left:16px; bottom:14px; margin:0;
+    font:13px ui-monospace,Menlo,Consolas,monospace; letter-spacing:.05em;
+    color:#2b2824; opacity:.4; transition:opacity 1s ease; pointer-events:none;
+  }
+  #hint.gone{ opacity:0; }
+  #back{
+    position:fixed; top:14px; left:16px; z-index:10;
+    font:20px ui-monospace,Menlo,Consolas,monospace; text-decoration:none;
+    color:#2b2824; opacity:.45; transition:opacity .2s ease;
+  }
+  #back:hover{ opacity:1; }
+</style>
+</head>
+<body>
+<a id="back" href="../" title="back to menu">←</a>
+<div id="stage">
+  <p id="hint">move through them</p>
+</div>
+
+<script>
+  // ?reel restores the 9:16 recording frame (must run before p5 measures the stage)
+  if(new URLSearchParams(location.search).has("reel")) document.body.classList.add("reel");
+</script>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+<script src="swarm.js"></script>
+</body>
+</html>

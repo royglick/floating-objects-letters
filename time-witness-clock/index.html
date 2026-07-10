@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eye shapes</title>
+<style>
+  html,body{ margin:0; height:100%; background:#faf9f6; overflow:hidden; }
+  #field{ display:block; touch-action:none; }
+  #back{
+    position:fixed; top:14px; left:16px; z-index:10;
+    font:20px ui-monospace,Menlo,Consolas,monospace; text-decoration:none;
+    color:#1c1a17; opacity:.45; transition:opacity .2s ease;
+  }
+  #back:hover{ opacity:1; }
+
+  /* ---- the panel ---------------------------------------------- */
+  #panel{
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:10;
+    display:flex; align-items:center; gap:13px;
+    background:rgba(255,255,255,.92); border:1px solid rgba(28,26,23,.25);
+    border-radius:12px; padding:10px 14px;
+    box-shadow:0 2px 14px rgba(28,26,23,.12);
+    font:11px ui-monospace,Menlo,Consolas,monospace; color:#1c1a17;
+    user-select:none;
+  }
+  #panel .ctl{ display:flex; flex-direction:column; align-items:center; gap:4px; }
+  #panel .ctl span{ opacity:.5; letter-spacing:.05em; }
+  #panel .sep{ width:1px; height:34px; background:rgba(28,26,23,.2); }
+
+  #panel button{
+    width:34px; height:34px; border-radius:50%; border:2px solid #1c1a17;
+    background:#fff; cursor:pointer; padding:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #panel button svg{ width:20px; height:20px; fill:none; stroke:#1c1a17; stroke-width:1.6; }
+  #panel button.on{ box-shadow:0 0 0 3px #7ab3d9; }
+  #hypnoBtn.on svg{ animation:spin 3s linear infinite; }
+  #tearBtn.on svg{ fill:#7ab3d9; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<a id="back" href="../" title="back to menu">←</a>
+
+<div id="panel">
+  <div class="ctl">
+    <button id="hypnoBtn" class="mode" title="hypnotic shapes from the center">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3"/>
+        <circle cx="12" cy="12" r="7"/>
+        <circle cx="12" cy="12" r="10.5"/>
+      </svg>
+    </button>
+    <span>hypno</span>
+  </div>
+  <div class="ctl">
+    <button id="countBtn" class="mode" title="the counter — 1, 2, 3…">
+      <svg viewBox="0 0 24 24">
+        <text x="12" y="16.5" text-anchor="middle"
+              font-family="ui-monospace,Menlo,monospace" font-size="12"
+              fill="#1c1a17" stroke="none">123</text>
+      </svg>
+    </button>
+    <span>count</span>
+  </div>
+  <div class="ctl">
+    <button id="cellsBtn" class="mode" title="cyclic automaton — self-organizing spirals">
+      <svg viewBox="0 0 24 24">
+        <rect x="4" y="4" width="6" height="6" rx="1"/>
+        <rect x="14" y="4" width="6" height="6" rx="1"/>
+        <rect x="4" y="14" width="6" height="6" rx="1"/>
+        <rect x="14" y="14" width="6" height="6" rx="1"/>
+      </svg>
+    </button>
+    <span>cells</span>
+  </div>
+  <div class="sep"></div>
+  <div class="ctl">
+    <button id="tearBtn" title="tears on/off">
+      <svg viewBox="0 0 24 24"><path d="M12 3 C 12 3, 5.5 12, 5.5 16 a 6.5 6.5 0 0 0 13 0 C 18.5 12, 12 3, 12 3 Z"/></svg>
+    </button>
+    <span>tears</span>
+  </div>
+</div>
+
+<canvas id="field"></canvas>
+<script src="clock.js"></script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 # full-resolution image backups (64MB) — the resized copies in images/ are the real assets
-images/_originals/
+everything-everywhere/images/_originals/
 
 .DS_Store
 node_modules/

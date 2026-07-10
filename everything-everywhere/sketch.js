@@ -184,8 +184,16 @@ function build(text){
   geoCache.clear();
   word.innerHTML="";
   letters=[];
-  let i=0;
-  for(const tok of text.match(/[^ ]+| /g)||[]){
+  let i=0, prevBreak=false;
+  for(const tok of text.match(/[^ \n]+|[ \n]/g)||[]){
+    if(tok==="\n"){
+      const br=document.createElement("div");
+      br.className="break"+(prevBreak?" blank":"");   // Enter twice = visible empty row
+      word.appendChild(br);
+      prevBreak=true;
+      continue;
+    }
+    prevBreak=false;
     if(tok===" "){
       const sp=document.createElement("div");
       sp.className="slot";
@@ -283,8 +291,14 @@ function fit(){
   }
 }
 
+/* the textarea grows downward to always show its full content */
+function growBox(){
+  textbox.style.height="auto";
+  textbox.style.height=textbox.scrollHeight+"px";
+}
 textbox.value=WORD;
-textbox.addEventListener("input",()=>build(textbox.value));
+growBox();
+textbox.addEventListener("input",()=>{ growBox(); build(textbox.value); });
 window.addEventListener("resize",()=>{ resize(); fit(); });
 build(WORD);
 document.fonts.ready.then(fit);   // re-measure once the browser's copy of the font arrives

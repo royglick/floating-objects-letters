@@ -1,59 +1,26 @@
-# YALLA — flat, until it isn't
+# language, given physics
 
-A word that looks like flat ink on paper. Click, and a wave sweeps diagonally
-across the screen: letters pop up out of their places as real 3D volumes —
-black face, white body, black ink along every edge — while random cutout
-images explode from behind each one. The wave passes, and everything settles
-back to flat ink.
+A small portfolio of generative typography sketches — **words that behave like
+things**. The root `index.html` is the menu.
 
-Type anything in the top-right box; the text refits and rewraps live.
+## Pieces
 
-Part of the *language, given physics* sketches.
+| Folder | Piece | What it is |
+|--------|-------|------------|
+| `everything-everywhere/` | **every thing every where** | A word in real extruded 3D type. Click: a wave sweeps the screen, letters pop into comic-style volumes while cutout images explode behind them. Type anything — it refits live. Three.js, works offline. |
+| `meditations/` | **meditations** | Sentences that flock and slither leftward like a school of fish, each led by its first letter. Move the cursor to part the swarm. p5.js (CDN). |
+| `time-witness-clock/` | **time witness clock** | A field of hand-cut closed eyes covering the screen. The current time exists only as which eyes are open — a dot-matrix clock where every pixel is a witness. Canvas 2D. |
 
-## Files
-
-| File | What's in it |
-|------|--------------|
-| `index.html` | Shell — markup, script tags |
-| `style.css` | Palette, layout, burst-image animation (CSS custom-property driven) |
-| `config.js` | **All the knobs** — word, depth, wave, pose ranges, burst images |
-| `sketch.js` | The machinery — layout, wave, tween, Three.js letter meshes |
-| `lib/` | Local Three.js + Archivo Black glyph outlines (works offline, from `file://`) |
-| `images/` | The burst cutouts (resized; full-res originals in `images/_originals/`, untracked) |
+Each piece has its own README with its knobs and the rules baked into its code.
 
 ## Run
 
-Open `index.html` directly, or any static server from this folder:
+Open `index.html` directly, or serve the folder:
 
 ```bash
 python3 -m http.server 8000
 ```
 
-## How it works
+## License
 
-Layout is DOM: invisible ghost letters fill real flex slots, so fitting,
-wrapping and whitespace behave like ordinary text. A binary search picks the
-biggest font size that fits the stage. The visible letters are extruded glyph
-meshes (`THREE.TextGeometry`) on a transparent WebGL canvas, with the camera
-matched so world units equal CSS pixels — each mesh anchors to its measured
-slot baseline.
-
-A click launches a wave front (perpendicular to the ↘ diagonal). Each letter's
-distance to the front, measured along the diagonal, sets a graded target;
-awakeness `e` chases it through a sharp quintic ease. `e` drives everything in
-lockstep: mesh depth inflates, body/edge materials fade in, the letter flies to
-a random pose inside its own exclusive circular sector, and the burst images
-(plain DOM, reading `--e`) explode behind it a bit farther than the letter
-flies. At rest, depth and opacity are zero — genuinely flat ink again.
-
-## Rules baked into the code (learned the hard way — don't undo)
-
-1. **Never sense the animated thing** — the wave reads the fixed `.slot`, not
-   the moving letter. Self-sensing creates a feedback loop and jitter.
-2. **No discontinuities** — all motion runs through an eased timeline. Snaps
-   read as glitches.
-3. **Nothing 3D visible at rest** — depth scale AND side/edge opacity ride `e`
-   together; either alone leaves fringes or perspective leaks on off-center
-   letters.
-4. **Pose rolls on the sleep→wake transition**, not on p/target thresholds —
-   the wave ramps targets gradually, and threshold checks race the tween.
+Personal creative work. All rights reserved (for now).
