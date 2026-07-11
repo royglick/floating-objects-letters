@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>liquid words</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap" rel="stylesheet">
+<style>
+  html,body{ margin:0; height:100%; background:#faf9f6; overflow:hidden; }
+  #stage{ display:block; touch-action:none; cursor:pointer; }
+  #back{
+    position:fixed; top:14px; left:16px; z-index:10;
+    font:20px ui-monospace,Menlo,Consolas,monospace; text-decoration:none;
+    color:#1c1a17; opacity:.45; transition:opacity .2s ease;
+  }
+  #back:hover{ opacity:1; }
+  #hint{
+    position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+    font:12px ui-monospace,Menlo,Consolas,monospace; letter-spacing:.08em;
+    color:#1c1a17; opacity:.35; pointer-events:none;
+  }
+  svg.defs{ position:absolute; width:0; height:0; }
+
+  /* ---- the words: one per line, like everything-everywhere ------- */
+  #wordsBox{
+    position:fixed; top:16px; right:16px; z-index:10;
+    width:min(220px, 50vw);
+    font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;
+    padding:8px 10px;
+    color:#1c1a17; background:rgba(255,255,255,.55);
+    border:1px solid #1c1a17; border-radius:4px; outline:none;
+    user-select:text; -webkit-user-select:text;
+    resize:none; overflow-y:hidden;   /* grows downward via JS */
+    display:block;
+  }
+  #wordsBox:focus{ background:rgba(255,255,255,.85); }
+
+  /* ---- the knobs -------------------------------------------------- */
+  #panel{
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:10;
+    display:flex; align-items:center; gap:16px;
+    background:rgba(255,255,255,.92); border:1px solid rgba(28,26,23,.25);
+    border-radius:12px; padding:9px 14px;
+    box-shadow:0 2px 14px rgba(28,26,23,.12);
+    font:11px ui-monospace,Menlo,Consolas,monospace; color:#1c1a17;
+    user-select:none;
+  }
+  #panel .ctl{ display:flex; flex-direction:column; align-items:center; gap:3px; }
+  #panel .ctl span{ opacity:.5; letter-spacing:.05em; }
+  #panel input[type=range]{ width:82px; accent-color:#1c1a17; }
+  #panel input[type=color]{
+    width:34px; height:26px; padding:0; border:1.5px solid #1c1a17;
+    border-radius:6px; background:none; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<a id="back" href="../" title="back to menu">←</a>
+
+<!-- the goo: blur the alpha, then sharpen it back — approaching shapes
+     neck and fuse like liquid. stdDeviation is set live from band height. -->
+<svg class="defs" aria-hidden="true">
+  <filter id="goo">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="b"/>
+    <feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 32 -15"/>
+  </filter>
+</svg>
+
+<div id="panel">
+  <div class="ctl"><input type="range" id="k-bands" min="3" max="14" step="1"><span>bands</span></div>
+  <div class="ctl"><input type="range" id="k-gap" min="0" max="0.5" step="0.01"><span>gap</span></div>
+  <div class="ctl"><input type="range" id="k-morph" min="300" max="3000" step="50"><span>morph</span></div>
+  <div class="ctl"><input type="range" id="k-hold" min="0" max="4000" step="50"><span>hold</span></div>
+  <div class="ctl"><input type="range" id="k-stagger" min="0" max="300" step="5"><span>stagger</span></div>
+  <div class="ctl"><input type="color" id="k-ink"><span>ink</span></div>
+</div>
+
+<textarea id="wordsBox" rows="1" autocomplete="off" spellcheck="false"
+          placeholder="one word per line…"></textarea>
+
+<canvas id="stage"></canvas>
+<p id="hint">click to change the word</p>
+
+<script src="sketch.js"></script>
+</body>
+</html>
