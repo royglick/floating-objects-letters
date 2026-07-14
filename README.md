@@ -11,6 +11,7 @@ things**. The root `index.html` is the menu.
 | `meditations/` | **meditations** | Sentences that flock and slither leftward like a school of fish, each led by its first letter. Move the cursor to part the swarm. p5.js (CDN). |
 | `time-witness-clock/` | **time witness clock** | A field of hand-cut closed eyes covering the screen. Pattern modes (hypnotic tunnel, counter, cellular automaton) decide which eyes are open; abandoned patterns dissolve. Canvas 2D. |
 | `liquid-words/` | **liquid words** | Words cut into horizontal bands; on each transition the bands' segments slide, stretch, merge and split like fluid to construct the next word. Canvas 2D + goo filter. |
+| `domino-words/` | **domino words** | Words written in a single-stroke font, every pen stroke a course of standing dominoes seen from above — flat dashes until you brush one, then real physics runs the chain down the stroke and fallen faces reveal color. Three.js + cannon.js. |
 
 Each piece has its own README with its knobs and the rules baked into its code.
 

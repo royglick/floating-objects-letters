@@ -20,6 +20,7 @@ let GAP_FRAC=0.22;               // vertical gap between bands (fraction of band
 let MORPH_MS=1250;               // transition length
 let HOLD_MS=500;                 // rest between transitions
 let STAGGER_MS=70;               // per-band delay, top to bottom — a cascade
+let LINE_PHASE_MS=300;           // per-LINE delay — lines transition as a round, not a chord
 let INK="#1c1a17";               // the liquid
 const GOO_REST=0.035;            // goo blur at rest (× band height) — nearly crisp
 const GOO_MOVE=0.24;             // goo blur mid-transition — heavy, wet fusion
@@ -248,7 +249,7 @@ function frame(now){
   if(anim){
     // the liquid envelope: 0 at both ends of the whole transition,
     // 1 in the middle — the goo swells while material is in flight
-    const total=MORPH_MS+STAGGER_MS*(BANDS-1);
+    const total=MORPH_MS+STAGGER_MS*(BANDS-1)+LINE_PHASE_MS*(lines.length-1);
     const overall=Math.max(0,Math.min(1,(now-anim.t0)/total));
     setGoo(GOO_REST+(GOO_MOVE-GOO_REST)*Math.sin(Math.PI*overall));
 
@@ -257,8 +258,9 @@ function frame(now){
       const pairs=anim.perLine[i];
       if(!pairs) return {bands:line.bands[line.cur],top0:line.top0};
       const bands=[];
+      const lineDelay=i*LINE_PHASE_MS;          // the round: each line waits its turn
       for(let b=0;b<BANDS;b++){
-        const t=Math.max(0,Math.min(1,(now-anim.t0-b*STAGGER_MS)/MORPH_MS));
+        const t=Math.max(0,Math.min(1,(now-anim.t0-lineDelay-b*STAGGER_MS)/MORPH_MS));
         if(t<1) done=false;
         const e=easeIO(t);
         bands.push(pairs[b].map(p=>({
@@ -294,6 +296,7 @@ function initPanel(){
   K("k-morph").value=MORPH_MS;
   K("k-hold").value=HOLD_MS;
   K("k-stagger").value=STAGGER_MS;
+  K("k-phase").value=LINE_PHASE_MS;
   K("k-ink").value=INK;
   wordsBox.value=DEFAULT_TEXT;
   growBox();
@@ -313,6 +316,7 @@ function initPanel(){
   K("k-morph").addEventListener("input",e=>{ MORPH_MS=+e.target.value; });
   K("k-hold").addEventListener("input",e=>{ HOLD_MS=+e.target.value; });
   K("k-stagger").addEventListener("input",e=>{ STAGGER_MS=+e.target.value; });
+  K("k-phase").addEventListener("input",e=>{ LINE_PHASE_MS=+e.target.value; });
 
   // the text: lines are canvas lines; spaces separate a line's cycle
   wordsBox.addEventListener("input",()=>{

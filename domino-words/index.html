@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>domino words</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap" rel="stylesheet">
+<style>
+  html,body{ margin:0; height:100%; background:#faf9f6; overflow:hidden; }
+  #stage{ display:block; touch-action:none; }
+  #back{
+    position:fixed; top:14px; left:16px; z-index:10;
+    font:20px ui-monospace,Menlo,Consolas,monospace; text-decoration:none;
+    color:#1c1a17; opacity:.45; transition:opacity .2s ease;
+  }
+  #back:hover{ opacity:1; }
+  #textbox{
+    position:fixed; top:16px; right:16px; z-index:10;
+    width:min(220px, 50vw);
+    font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;
+    padding:8px 10px;
+    color:#1c1a17; background:rgba(255,255,255,.55);
+    border:1px solid #1c1a17; border-radius:4px; outline:none;
+    user-select:text; -webkit-user-select:text;
+    resize:none; overflow-y:hidden;
+    display:block;
+  }
+  #textbox:focus{ background:rgba(255,255,255,.85); }
+  #hint{
+    position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+    font:12px ui-monospace,Menlo,Consolas,monospace; letter-spacing:.08em;
+    color:#1c1a17; opacity:.35; pointer-events:none;
+  }
+  #knobs{
+    position:fixed; right:16px; bottom:16px; z-index:10;
+    font:11px ui-monospace,Menlo,Consolas,monospace;
+    color:#1c1a17; background:rgba(255,255,255,.55);
+    border:1px solid #1c1a17; border-radius:4px;
+    padding:8px 10px; display:grid; gap:4px;
+    opacity:.75; transition:opacity .2s ease;
+  }
+  #knobs:hover{ opacity:1; background:rgba(255,255,255,.85); }
+  #knobs .knob{
+    display:grid; grid-template-columns:66px 92px 36px;
+    align-items:center; gap:6px;
+  }
+  #knobs input[type=range]{ width:92px; accent-color:#1c1a17; }
+  #knobs .k-val{ text-align:right; }
+</style>
+</head>
+<body>
+<a id="back" href="../" title="back to menu">←</a>
+<textarea id="textbox" rows="1" autocomplete="off" spellcheck="false" placeholder="type here…"></textarea>
+<canvas id="stage"></canvas>
+<div id="knobs">
+  <div class="knob"><span>thickness</span><input id="knT"  type="range" min="0.5" max="4"  step="0.05" value="1"><span    class="k-val" id="kvT">1</span></div>
+  <div class="knob"><span>height</span>   <input id="knHD" type="range" min="6"   max="50" step="0.2"  value="20.8"><span class="k-val" id="kvHD">20.8</span></div>
+  <div class="knob"><span>width</span>    <input id="knWD" type="range" min="4"   max="30" step="0.2"  value="12.6"><span class="k-val" id="kvWD">12.6</span></div>
+  <div class="knob"><span>spacing</span>  <input id="knSP" type="range" min="1.5" max="12" step="0.1"  value="4.8"><span  class="k-val" id="kvSP">4.8</span></div>
+  <div class="knob"><span>floor fric</span> <input id="knFR" type="range" min="0" max="1" step="0.01" value="0.1"><span class="k-val" id="kvFR">0.1</span></div>
+  <div class="knob"><span>brick fric</span> <input id="knBR" type="range" min="0" max="1" step="0.01" value="0"><span   class="k-val" id="kvBR">0</span></div>
+</div>
+<p id="hint">brush to topple — press &amp; sweep to bulldoze — double-click to reset</p>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/cannon.min.js"></script>
+<script src="lib/strokefont.js"></script>
+<script src="sketch.js"></script>
+</body>
+</html>
