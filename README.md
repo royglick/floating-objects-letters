@@ -12,6 +12,7 @@ things**. The root `index.html` is the menu.
 | `eyes-eyes-eyes/` | **eyes eyes eyes** | A field of hand-cut closed eyes covering the screen. Pattern modes (hypnotic tunnel, counter, cellular automaton) decide which eyes are open; abandoned patterns dissolve. Canvas 2D. |
 | `band-transitions/` | **band transitions** | Words cut into horizontal bands; on each transition the bands' segments slide, stretch, merge and split like fluid to construct the next word. Canvas 2D + goo filter. |
 | `domino-words/` | **domino words** | Words written in a single-stroke font, every pen stroke a course of standing dominoes seen from above — flat dashes until you brush one, then real physics runs the chain down the stroke and fallen faces reveal color. Three.js + cannon.js. |
+| `anemone-words/` | **anemone words** | A word planted on the sea floor, seen from above: bold letters filled with long white glowing tentacles growing toward the camera — chains of capsules under upward gravity (buoyant kelp), so they right themselves and collide for real. Brush to stir, press to gather, double-click to replant. Canvas 2D + Rapier. |
 
 Each piece has its own README with its knobs and the rules baked into its code.
 

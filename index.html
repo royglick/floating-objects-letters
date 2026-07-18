@@ -43,6 +43,11 @@
     font-style:italic; text-transform:lowercase; letter-spacing:.02em;
     font-size:clamp(24px,4.5vw,54px);
   }
+  a.piece.sea{
+    font-family:ui-sans-serif,system-ui,"Helvetica Neue",sans-serif;
+    font-weight:200; text-transform:lowercase; letter-spacing:.28em;
+    font-size:clamp(22px,4.2vw,50px);
+  }
   /* hover: the flat word pops into a little extrusion — a wink at the sketches */
   a.piece:hover, a.piece:focus-visible{
     transform:translate(-3px,-6px);
@@ -91,6 +96,12 @@
 </svg>
 
 <a class="piece ete" href="domino-words/">domino<br>words</a>
+
+<svg class="string" viewBox="0 0 600 64" aria-hidden="true">
+  <polyline/>
+</svg>
+
+<a class="piece sea" href="anemone-words/">anemone words</a>
 
 <script src="string.js"></script>
 </body>
