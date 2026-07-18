@@ -3,7 +3,7 @@
    Words built from standing domino bricks, seen straight from
    above (orthographic). At rest every brick shows only its thin
    black top — the word reads as flat 2D stripes. Brush a brick
-   and it topples with real physics (cannon.js), knocking its
+   and it topples with real physics (Rapier), knocking its
    neighbors down the stroke; fallen bricks reveal colored faces.
 
    Placement is exact: the glyphs are a SINGLE-STROKE font
@@ -15,8 +15,11 @@
    Type in the box (lines are lines). Double-click resets.
    ------------------------------------------------------------ */
 
+import RAPIER from "./lib/rapier.mjs";
+await RAPIER.init({});
+
 /* ---- knobs -------------------------------------------------- */
-const DEFAULT_TEXT="SING INTO CHAOS WHEN NEEDED";
+const DEFAULT_TEXT="SING\nINTO\nCHAOS\nWHEN\nNEEDED";
 let T=1, HD=20.8, WD=12.6;    // domino: thickness (run axis), height, width
 let SPACING=4.8;               // center distance along a run — gap ≈ half the
                                // height, so falls gather momentum before impact
@@ -31,7 +34,6 @@ const BRUSH_R=8;               // hover: radius of the push circle around the
                                // cursor — passing close counts, no need to hit
 const SWEEP_R=120.2;           // press-sweep: radius of the push circle
 const SWEEP_V=75;              // press-sweep: top push speed (units/s)
-const BRICK_VMAX=75;           // debris speed cap — see capSpeeds()
 const INK=0x1c1a17, PAPER=0xfaf9f6, FACE_A=0xd64520, FACE_B=0x2757c4;
 
 const canvas=document.getElementById("stage");
@@ -54,29 +56,20 @@ const floor=new THREE.Mesh(
 floor.rotation.x=-Math.PI/2;
 scene.add(floor);
 
-/* ---- cannon ---------------------------------------------------- */
-const world=new CANNON.World();
-world.gravity.set(0,-GRAVITY,0);
-world.broadphase=new CANNON.SAPBroadphase(world);
-world.allowSleep=true;
-world.solver.iterations=12;
-const matGround=new CANNON.Material("ground");
-const matBrick=new CANNON.Material("brick");
-const cmFloor=new CANNON.ContactMaterial(matGround,matBrick,
-  {friction:0.1,restitution:0,contactEquationStiffness:1e9,contactEquationRelaxation:2});
-world.addContactMaterial(cmFloor);   // cmFloor.friction is a live slider
-const cmBricks=new CANNON.ContactMaterial(matBrick,matBrick,
-  {friction:0,restitution:0,contactEquationStiffness:1e9,contactEquationRelaxation:2});
-world.addContactMaterial(cmBricks);  // cmBricks.friction is a live slider
-const ground=new CANNON.Body({mass:0,material:matGround,shape:new CANNON.Plane()});
-ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0),-Math.PI/2);
-world.addBody(ground);
+/* ---- rapier (physics) ------------------------------------------- */
+const world=new RAPIER.World({x:0,y:-GRAVITY,z:0});
+world.timestep=1/60;
+world.lengthUnit=10;           // tolerances scale to brick-sized units
+// the floor: a thick fixed slab, top face at y=0
+const floorCol=world.createCollider(
+  RAPIER.ColliderDesc.cuboid(2000,10,2000).setTranslation(0,-10,0)
+    .setFriction(0.1).setRestitution(0));   // friction is a live slider
+let brickMu=0;                 // brick-brick friction — live slider
 
 /* press-sweep is NOT a physics body. A kinematic pusher is infinitely
-   strong — grinding bricks against standing letters forced the solver
-   to mint runaway velocities and sustained interpenetration (the
-   "ghosts" streaking under letters). Instead the sweep sets bounded
-   velocities directly on bricks inside a circle: see stepSweep() */
+   strong — grinding bricks against standing letters forces any solver
+   to mint runaway velocities and sustained interpenetration. Instead
+   the sweep sets bounded velocities directly: see stepSweep() */
 let sweeping=false;
 /* ---- text → dominoes along single-stroke letter paths ------------
    The letters ARE line data: each glyph in STROKE_FONT (Hershey
@@ -232,11 +225,14 @@ const TIP_AT=0.22;             // rad — just past balance: ignite the neighbor
 const NUDGE_W=9;               // the passed-on tip spin (rad/s) — strong enough
                                // to tip even a brick pinned by its leaning igniter
 const dummy=new THREE.Object3D();
-const YAXIS=new CANNON.Vec3(0,1,0);
+const yawQuat=rot=>({x:0,y:Math.sin(-rot/2),z:0,w:Math.cos(-rot/2)});
+const upOf=q=>({x:2*(q.x*q.y-q.w*q.z),   // the brick's up-axis in world:
+                y:1-2*(q.x*q.x+q.z*q.z), // its quaternion applied to (0,1,0)
+                z:2*(q.y*q.z+q.w*q.x)});
 
 function buildScene(text){
   sweeping=false;
-  for(const b of bodies) world.removeBody(b);
+  for(const b of bodies) world.removeRigidBody(b);
   bodies=[]; homes=[];
   if(mesh){
     scene.remove(mesh);
@@ -271,19 +267,20 @@ function buildScene(text){
   scene.add(mesh);
 
   spots.forEach((s,i)=>{
-    const body=new CANNON.Body({
-      mass:Math.max(0.2,s.w/WD),      // a sliver is light — momentum scales
-      material:matBrick,
-      shape:new CANNON.Box(new CANNON.Vec3(T/2,HD/2,s.w/2))});
-    body.position.set(s.x,HD/2,s.z);
     // yaw −rot puts the thin axis on world (cos rot, 0, sin rot) —
     // the same axis marshal/topple compute from homes[].rot
-    body.quaternion.setFromAxisAngle(YAXIS,-s.rot);
-    body.allowSleep=true;
-    body.sleepSpeedLimit=0.18;   // gentle enough that a slow tip-over
-    body.sleepTimeLimit=0.9;     // is never frozen mid-fall by the sleeper
-    body.sleep();                // stable until touched
-    world.addBody(body);
+    const body=world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(s.x,HD/2,s.z)
+      .setRotation(yawQuat(s.rot))
+      .setLinearDamping(0.15)         // a whisper of air drag
+      .setAngularDamping(0.3));
+      // no CCD: sweep speeds are bounded and rapier's predictive
+      // contacts hold at those speeds — and CCD blocks bodies from
+      // ever falling asleep, which is the one thing we need most
+    // density 1 → mass ∝ volume ∝ width: a sliver is naturally light
+    world.createCollider(RAPIER.ColliderDesc.cuboid(T/2,HD/2,s.w/2)
+      .setFriction(brickMu).setRestitution(0), body);
+    body.sleep();                     // stable until touched
     bodies.push(body);
     homes.push({x:s.x,z:s.z,rot:s.rot,sw:s.w/WD});
     dummy.position.set(s.x,HD/2,s.z);
@@ -344,27 +341,17 @@ function topple(e){
   // cursor's ground point gets flicked — passing close beside a run
   // counts, the pointer needn't cross the bricks themselves
   const p=groundPoint();
-  let woke=false;
   for(let i=0;i<bodies.length;i++){
     const body=bodies[i];
-    const bx=body.position.x-p.x, bz=body.position.z-p.z;
+    const tp=body.translation();
+    const bx=tp.x-p.x, bz=tp.z-p.z;
     if(bx*bx+bz*bz>BRUSH_R*BRUSH_R) continue;
     // only kick bricks standing upright and quiet — never debris.
     // (a pure y-rotation keeps q.x=q.z=0, so this works for both orientations)
-    const q=body.quaternion;
+    const q=body.rotation();
     if(Math.hypot(q.x,q.z)>0.08) continue;
-    if(body.velocity.length()>1.5) continue;
-    if(!woke){
-      woke=true;
-      // wake only the neighborhood: a sleeping neighbor acts like a wall
-      // for one solver step, but waking the whole table makes every distant
-      // letter twitch — the wave's own contacts wake bricks as it spreads
-      const wr2=(EM_WORLD*0.8)**2;
-      for(const b of bodies){
-        const ox=b.position.x-p.x, oz=b.position.z-p.z;
-        if(ox*ox+oz*oz<wr2) b.wakeUp();
-      }
-    }
+    const lv=body.linvel();
+    if(Math.hypot(lv.x,lv.y,lv.z)>1.5) continue;
     // fall away from the cursor, along the brick's own thin axis (its
     // chain direction); pointer motion breaks the tie when the cursor
     // sits dead on the spine (screen y ≈ world z, top-down)
@@ -373,9 +360,9 @@ function topple(e){
     let d=bx*ax+bz*az;
     if(Math.abs(d)<1e-3) d=dx*ax+dy*az;
     const s=d>=0?1:-1;
-    body.velocity.set(s*ax*KICK_V,0,s*az*KICK_V);
+    body.setLinvel({x:s*ax*KICK_V,y:0,z:s*az*KICK_V},true);
     // tip-over spin about (up × fallDir) = (az, 0, -ax)
-    body.angularVelocity.set(s*az*KICK_W,0,-s*ax*KICK_W);
+    body.setAngvel({x:s*az*KICK_W,y:0,z:-s*ax*KICK_W},true);
   }
 }
 canvas.addEventListener("pointermove",e=>{
@@ -409,45 +396,25 @@ function stepSweep(){
   const ux=mx/step, uz=mz/step;
   const r2=SWEEP_R*SWEEP_R;
   for(const b of bodies){
-    const dx=b.position.x-dragTarget.x, dz=b.position.z-dragTarget.z;
+    const tp=b.translation();
+    const dx=tp.x-dragTarget.x, dz=tp.z-dragTarget.z;
     const d2=dx*dx+dz*dz;
     if(d2>r2) continue;
-    b.wakeUp();
     const s=speed*(1-0.6*Math.sqrt(d2)/SWEEP_R);  // full at center, 40% at rim
-    b.velocity.x=ux*s; b.velocity.z=uz*s;
+    const lv=b.linvel();
+    b.setLinvel({x:ux*s,y:lv.y,z:uz*s},true);
     // tip-over spin so standing bricks topple instead of skating
-    b.angularVelocity.set(uz*s*0.12,0,-ux*s*0.12);
-  }
-}
-
-/* the ghost-slide guard: a flat brick is only T tall, a standing brick
-   only T thick — once one buries deeper than ~T into the other in a
-   single substep, the solver's cheapest push-out flips from horizontal
-   to VERTICAL and nothing opposes the slide: debris ghosts under
-   standing letters. Capping debris speed (plus 1/120 substeps in the
-   loop) keeps every collision in the shallow, well-behaved regime */
-function capSpeeds(){
-  const m2=BRICK_VMAX*BRICK_VMAX;
-  for(const b of bodies){
-    if(b.sleepState===CANNON.Body.SLEEPING) continue;
-    const vx=b.velocity.x, vz=b.velocity.z;
-    const v2=vx*vx+vz*vz;
-    if(v2>m2){
-      const f=BRICK_VMAX/Math.sqrt(v2);
-      b.velocity.x*=f; b.velocity.z*=f;
-    }
-    if(b.velocity.y>250) b.velocity.y=250;         // squeeze pops
-    else if(b.velocity.y<-250) b.velocity.y=-250;  // floor punches
+    b.setAngvel({x:uz*s*0.12,y:0,z:-ux*s*0.12},true);
   }
 }
 
 canvas.addEventListener("dblclick",()=>{        // stand them all up again
   release();
   bodies.forEach((b,i)=>{
-    b.position.set(homes[i].x,HD/2,homes[i].z);
-    b.quaternion.setFromAxisAngle(YAXIS,-homes[i].rot);
-    b.velocity.set(0,0,0);
-    b.angularVelocity.set(0,0,0);
+    b.setTranslation({x:homes[i].x,y:HD/2,z:homes[i].z},false);
+    b.setRotation(yawQuat(homes[i].rot),false);
+    b.setLinvel({x:0,y:0,z:0},false);
+    b.setAngvel({x:0,y:0,z:0},false);
     b.sleep();
     chain[i].fired=false;
   });
@@ -458,8 +425,9 @@ canvas.addEventListener("dblclick",()=>{        // stand them all up again
 /* ---- loop ----------------------------------------------------------- */
 function syncAll(){
   bodies.forEach((b,i)=>{
-    dummy.position.copy(b.position);
-    dummy.quaternion.copy(b.quaternion);
+    const tp=b.translation(), q=b.rotation();
+    dummy.position.set(tp.x,tp.y,tp.z);
+    dummy.quaternion.set(q.x,q.y,q.z,q.w);
     dummy.scale.set(1,1,homes[i].sw);
     dummy.updateMatrix();
     mesh.setMatrixAt(i,dummy.matrix);
@@ -470,22 +438,17 @@ function syncAll(){
 /* the chain marshal: physics tumbles every brick, but the hand-off is
    guaranteed — a brick leaning past TIP_AT ignites its down-run
    neighbor with a small tip, exactly once per stand-up */
-const UPV=new CANNON.Vec3();
 function marshal(){
   for(let i=0;i<bodies.length;i++){
     const b=bodies[i];
-    if(b.sleepState===CANNON.Body.SLEEPING||chain[i].fired) continue;
-    b.quaternion.vmult(new CANNON.Vec3(0,1,0),UPV);
-    const tilt=Math.acos(Math.max(-1,Math.min(1,UPV.y)));
+    if(b.isSleeping()||chain[i].fired) continue;
+    const up=upOf(b.rotation());
+    const tilt=Math.acos(Math.max(-1,Math.min(1,up.y)));
     if(tilt<TIP_AT) continue;
     const ax=Math.cos(homes[i].rot), az=Math.sin(homes[i].rot);
-    const s=(UPV.x*ax+UPV.z*az)>=0?1:-1;      // which way it leans
+    const s=(up.x*ax+up.z*az)>=0?1:-1;        // which way it leans
     chain[i].fired=true;
-    const upright=n=>{
-      if(n<0) return false;
-      bodies[n].quaternion.vmult(new CANNON.Vec3(0,1,0),UPV);
-      return UPV.y>0.96;
-    };
+    const upright=n=>n>=0&&upOf(bodies[n].rotation()).y>0.96;
     // the wave BRANCHES: the run neighbor plus the nearest other upright
     // brick both ignite — a tree of falls survives dead-end pockets
     const targets=[];
@@ -506,30 +469,33 @@ function marshal(){
     if(best>=0) targets.push(best);
     for(const j of targets){
       const nb=bodies[j];
-      nb.wakeUp();
       const nax=Math.cos(homes[j].rot), naz=Math.sin(homes[j].rot);
       const ddx=homes[j].x-homes[i].x, ddz=homes[j].z-homes[i].z;
       const ns=(nax*ddx+naz*ddz)>=0?1:-1;      // the wave pushes outward
-      nb.velocity.set(ns*nax*6,0,ns*naz*6);
-      nb.angularVelocity.set(ns*naz*NUDGE_W,0,-ns*nax*NUDGE_W);
+      nb.setLinvel({x:ns*nax*6,y:0,z:ns*naz*6},true);
+      nb.setAngvel({x:ns*naz*NUDGE_W,y:0,z:-ns*nax*NUDGE_W},true);
     }
   }
 }
 
-let prev=performance.now();
+let prev=performance.now(), acc=0;
 function loop(now){
   const dt=Math.min(0.05,(now-prev)/1000); prev=now;
-  stepSweep();
-  capSpeeds();
-  world.step(1/60,dt,3);
+  acc=Math.min(acc+dt,3/60);        // fixed 1/60 steps, at most 3 per frame
+  while(acc>=1/60){
+    stepSweep();
+    world.step();
+    acc-=1/60;
+  }
   if(chain.length) marshal();
   let awake=false;
   if(mesh){
     bodies.forEach((b,i)=>{
-      if(b.sleepState===CANNON.Body.SLEEPING) return;
+      if(b.isSleeping()) return;
       awake=true;
-      dummy.position.copy(b.position);
-      dummy.quaternion.copy(b.quaternion);
+      const tp=b.translation(), q=b.rotation();
+      dummy.position.set(tp.x,tp.y,tp.z);
+      dummy.quaternion.set(q.x,q.y,q.z,q.w);
       dummy.scale.set(1,1,homes[i].sw);
       dummy.updateMatrix();
       mesh.setMatrixAt(i,dummy.matrix);
@@ -570,8 +536,11 @@ bindKnob("T", v=>{T=v;}, true);
 bindKnob("HD",v=>{HD=v;}, true);
 bindKnob("WD",v=>{WD=v;}, true);
 bindKnob("SP",v=>{SPACING=v;}, true);
-bindKnob("FR",v=>{cmFloor.friction=v;}, false);
-bindKnob("BR",v=>{cmBricks.friction=v;}, false);
+bindKnob("FR",v=>{floorCol.setFriction(v);}, false);
+bindKnob("BR",v=>{
+  brickMu=v;
+  for(const b of bodies) b.collider(0).setFriction(v);
+}, false);
 
 function resize(){
   renderer.setSize(innerWidth,innerHeight);
