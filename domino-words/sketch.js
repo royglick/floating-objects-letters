@@ -542,6 +542,32 @@ bindKnob("BR",v=>{
   for(const b of bodies) b.collider(0).setFriction(v);
 }, false);
 
+/* the panel is furniture — grab a blank spot and carry it anywhere */
+function makeDraggable(el){
+  el.addEventListener("pointerdown",e=>{
+    if(e.target.closest("input,button,textarea,select,a")) return;
+    e.preventDefault();
+    const r=el.getBoundingClientRect();
+    const dx=e.clientX-r.left, dy=e.clientY-r.top;
+    // pin to left/top pixels so the right/bottom anchoring lets go
+    Object.assign(el.style,{left:r.left+"px",top:r.top+"px",right:"auto",bottom:"auto"});
+    el.setPointerCapture(e.pointerId);
+    const move=ev=>{
+      el.style.left=Math.max(4,Math.min(ev.clientX-dx,innerWidth -r.width -4))+"px";
+      el.style.top =Math.max(4,Math.min(ev.clientY-dy,innerHeight-r.height-4))+"px";
+    };
+    const drop=()=>{
+      el.removeEventListener("pointermove",move);
+      el.removeEventListener("pointerup",drop);
+      el.removeEventListener("pointercancel",drop);
+    };
+    el.addEventListener("pointermove",move);
+    el.addEventListener("pointerup",drop);
+    el.addEventListener("pointercancel",drop);
+  });
+}
+makeDraggable(document.getElementById("knobs"));
+
 function resize(){
   renderer.setSize(innerWidth,innerHeight);
   buildScene(textbox.value||DEFAULT_TEXT);
