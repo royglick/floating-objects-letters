@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loose ends</title>
+<style>
+  html,body{ margin:0; height:100%; background:#faf9f6; overflow:hidden; }
+  #stage{ display:block; touch-action:none; cursor:pointer; }
+  #back{
+    position:fixed; top:14px; left:16px; z-index:10;
+    font:20px ui-monospace,Menlo,Consolas,monospace; text-decoration:none;
+    color:#1c1a17; opacity:.45; transition:opacity .2s ease;
+  }
+  #back:hover{ opacity:1; }
+  #hint{
+    position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+    font:12px ui-monospace,Menlo,Consolas,monospace; letter-spacing:.08em;
+    color:#1c1a17; opacity:.35; pointer-events:none;
+  }
+
+  /* ---- the letters, top right: every line is a line ------------------ */
+  #lettersBox{
+    position:fixed; top:16px; right:16px; z-index:10;
+    width:min(200px, 42vw);
+    font:16px/1.4 ui-monospace,Menlo,Consolas,monospace; letter-spacing:.15em;
+    padding:8px 10px; text-align:center;
+    color:#1c1a17; background:rgba(255,255,255,.55);
+    border:1px solid #1c1a17; border-radius:4px; outline:none;
+    resize:none; overflow-y:hidden; display:block;
+  }
+  #lettersBox:focus{ background:rgba(255,255,255,.85); }
+
+  /* ---- the knobs ---------------------------------------------------- */
+  #panel{
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:10;
+    display:flex; align-items:center; gap:16px;
+    background:rgba(255,255,255,.92); border:1px solid rgba(28,26,23,.25);
+    border-radius:12px; padding:9px 14px;
+    box-shadow:0 2px 14px rgba(28,26,23,.12);
+    font:11px ui-monospace,Menlo,Consolas,monospace; color:#1c1a17;
+    user-select:none; cursor:grab; touch-action:none;
+  }
+  #panel .ctl{ display:flex; flex-direction:column; align-items:center; gap:3px; }
+  #panel .ctl span{ opacity:.5; letter-spacing:.05em; }
+  #panel input[type=range]{ width:82px; accent-color:#1c1a17; }
+  #panel input[type=color]{
+    width:34px; height:26px; padding:0; border:1.5px solid #1c1a17;
+    border-radius:6px; background:none; cursor:pointer;
+  }
+  #panel select{
+    font:11px ui-monospace,Menlo,Consolas,monospace; color:#1c1a17;
+    background:rgba(255,255,255,.8); border:1px solid rgba(28,26,23,.4);
+    border-radius:6px; padding:3px 4px; cursor:pointer; outline:none;
+  }
+</style>
+</head>
+<body>
+<a id="back" href="../" title="back to menu">←</a>
+
+<div id="panel">
+  <div class="ctl">
+    <select id="k-font">
+      <option value="cutlings">cutlings</option>
+      <option value="singularis">singularis</option>
+      <option value="readability">readability</option>
+      <option value="nixish">nixish</option>
+      <option value="delight">delight</option>
+      <option value="herculean">herculean</option>
+      <option value="osmotron">osmotron</option>
+      <option value="round">round (built-in)</option>
+    </select><span>font</span>
+  </div>
+  <div class="ctl">
+    <select id="k-rails">
+      <option value="straight">straight</option>
+      <option value="dance">dance</option>
+    </select><span>rails</span>
+  </div>
+  <div class="ctl">
+    <select id="k-feel">
+      <option value="organic">organic</option>
+      <option value="clean">clean</option>
+    </select><span>feel</span>
+  </div>
+  <div class="ctl"><input type="range" id="k-weight" min="0.6" max="4.5" step="0.1"><span>weight</span></div>
+  <div class="ctl"><input type="range" id="k-speed" min="500" max="9000" step="100"><span>tempo</span></div>
+  <div class="ctl"><input type="range" id="k-gap" min="0" max="800" step="10"><span>gap</span></div>
+  <div class="ctl"><input type="range" id="k-len" min="0.5" max="6" step="0.1"><span>length</span></div>
+  <div class="ctl"><input type="color" id="k-ink"><span>ink</span></div>
+</div>
+
+<textarea id="lettersBox" rows="1" autocomplete="off" spellcheck="false" placeholder="letters…"></textarea>
+
+<canvas id="stage"></canvas>
+<p id="hint">type letters · click to release them</p>
+
+<script src="lib/linefont.js"></script>
+<script src="sketch.js"></script>
+</body>
+</html>

@@ -48,6 +48,13 @@
     font-weight:200; text-transform:lowercase; letter-spacing:.28em;
     font-size:clamp(22px,4.2vw,50px);
   }
+  a.piece.loose{
+    font-family:ui-sans-serif,system-ui,"Helvetica Neue",sans-serif;
+    font-weight:250; text-transform:lowercase; letter-spacing:.2em;
+    font-size:clamp(22px,4.2vw,50px);
+    text-decoration:underline; text-underline-offset:.35em;
+    text-decoration-thickness:1px; text-decoration-color:rgba(28,26,23,.3);
+  }
   /* hover: the flat word pops into a little extrusion — a wink at the sketches */
   a.piece:hover, a.piece:focus-visible{
     transform:translate(-3px,-6px);
@@ -102,6 +109,12 @@
 </svg>
 
 <a class="piece sea" href="anemone-words/">anemone words</a>
+
+<svg class="string" viewBox="0 0 600 64" aria-hidden="true">
+  <polyline/>
+</svg>
+
+<a class="piece loose" href="loose-ends/">loose ends</a>
 
 <script src="string.js"></script>
 </body>
