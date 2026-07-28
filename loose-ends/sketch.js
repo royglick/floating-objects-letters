@@ -728,8 +728,12 @@ function draw(now){
   const LH=font().lh;
   const widths=lines.map(l=>[...l].reduce((a,ch)=>a+glyph(ch).w,0));
   const maxW=Math.max(...widths,1);
-  let s=SIZE*Math.min(W,H)/CAP;
+  // the comfortable fit first, then the size knob scales from there —
+  // 0.55 is exactly the fitted look, the top of the range runs the
+  // text full-bleed, never past the screen
+  let s=0.55*Math.min(W,H)/CAP;
   s=Math.min(s,0.92*W/maxW,0.84*H/(lines.length*LH));
+  s=Math.min(s*SIZE/0.55,W/maxW,H/(lines.length*LH));
 
   ctx.lineCap="round"; ctx.lineJoin="round";
   ctx.strokeStyle=INK;
@@ -828,12 +832,23 @@ function draw(now){
       }
       return w;
     };
+    // a rail shorter than a couple of pen-widths is being born or
+    // absorbed — it thins away instead of popping in and out as a
+    // full-width disc
+    const melt=Math.min(1,(a1-a0)/Math.max(chunkLen,baseW*2.2));
+    // approaching the door the pen's width eases into the letter's
+    // own ink there — the landing swell never outgrows the letter
+    const doorW=baseW*(d.doorK||1);
+    const BL=Math.max(baseW*2,capPx*0.35);
     const rib=[];
     for(const p of S){
       const f=p[3]/chunkLen-0.5;
       const i0=Math.max(0,Math.floor(f));
       const t=Math.min(1,Math.max(0,f-i0));
-      rib.push([p[0],p[1],widthOfBin(i0)*(1-t)+widthOfBin(i0+1)*t]);
+      let w=widthOfBin(i0)*(1-t)+widthOfBin(i0+1)*t;
+      const nd=Math.max(0,1-(P.A-p[3])/BL);
+      w+=(doorW-w)*nd*nd;
+      rib.push([p[0],p[1],w*melt]);
     }
     fillRibbon(rib);
   }
@@ -873,6 +888,12 @@ function draw(now){
 
       const doorGeo=di=>{
         const en=net.entries[di];
+        if(en.wk===undefined){
+          // the letter's own ink width right at this door — the rail
+          // blends into it so line and letter read as one stroke
+          const e2=net.edges.find(e3=>e3.u===en.node||e3.v===en.node);
+          en.wk=e2?e2.wprof[e2.u===en.node?0:e2.wprof.length-1]:1;
+        }
         const ex=x+en.x*s, ey=yMid+(en.y-MID)*s;
         let A=1e9;
         if(en.dx>1e-6) A=Math.min(A,(W+60-ex)/en.dx);
@@ -880,7 +901,7 @@ function draw(now){
         if(en.dy>1e-6) A=Math.min(A,(H+60-ey)/en.dy);
         if(en.dy<-1e-6) A=Math.min(A,(-60-ey)/en.dy);
         if(A>1e8) A=(W+H)/2;
-        return {ex,ey,dx:en.dx,dy:en.dy,A,di,depth:en.depth};
+        return {ex,ey,dx:en.dx,dy:en.dy,A,di,depth:en.depth,doorK:en.wk};
       };
       // ONE line per piece: a random door forms it; a different door —
       // the most opposite one — empties it on release
@@ -1136,6 +1157,7 @@ function initPanel(){
   K("k-font").value=FONTK;
   K("k-rails").value=RAILS;
   K("k-feel").value=FEEL;
+  K("k-size").value=SIZE;
   K("k-weight").value=WEIGHT;
   K("k-speed").value=FORM_MS;
   K("k-gap").value=GAP_MS;
@@ -1147,6 +1169,7 @@ function initPanel(){
   K("k-font").addEventListener("change",e=>pickFont(e.target.value));
   K("k-rails").addEventListener("change",e=>{ RAILS=e.target.value; reform(); });
   K("k-feel").addEventListener("change",e=>{ FEEL=e.target.value==="clean"?"clean":"organic"; reform(); });
+  K("k-size").addEventListener("input",e=>{ SIZE=+e.target.value; reform(); });
   K("k-weight").addEventListener("input",e=>{ WEIGHT=+e.target.value; });
   K("k-speed").addEventListener("input",e=>{ FORM_MS=+e.target.value; });
   K("k-gap").addEventListener("input",e=>{ GAP_MS=+e.target.value; reform(); });
