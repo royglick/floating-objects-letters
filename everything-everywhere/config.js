@@ -6,6 +6,12 @@ const WORD  = "EVERY\nTHING\nEVERY\nWHERE";
 
 const DEPTH  = 30;    // full extrusion depth (px) when fully awake
 
+/* hover: letters pop when the cursor comes near them.
+   Letters within `inner` px of the cursor are fully awake; influence
+   fades to zero at `outer`. Tighten both to make it strictly the
+   letter under the cursor; widen for a softer halo around it. */
+const HOVER = { inner:60, outer:220 };
+
 /* click wave: on click, a front sweeps diagonally top-left → bottom-right.
    Letters within `inner` px of the front (measured along the diagonal) are
    fully awake; influence fades to zero at `outer`. speed is px/ms. */
@@ -78,6 +84,6 @@ const POSE = {
   toward: [ 45,115],       // px toward the camera
   twistX: [ 15, 38],       // deg (sign randomized)
   twistY: [ 15, 38],       // deg (sign randomized)
-  speed:  10/420,           // 1 / ms — wake/sleep tween speed
+  time:   850,             // ms for a full pop (and settle back) — bigger = slower
   float:  { y:5, deg:30.5, speed:0.0021 },  // idle bobbing while awake
 };

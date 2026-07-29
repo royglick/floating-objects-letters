@@ -33,18 +33,18 @@
    ------------------------------------------------------------ */
 
 /* defaults — the panel exposes these live */
-let SIZE=0.55;                 // cap height (× min screen dim)
-let WEIGHT=0.6;                // stripe width (font units; cap height is 21)
+let SIZE=0.35;                 // cap height (× min screen dim)
+let WEIGHT=0.8;                // stripe width (font units; cap height is 21)
 let FORM_MS=9000;              // the head's journey: off-screen through the whole letter
-let GAP_MS=150;                // average time between one entrance and the next
+let GAP_MS=0;                  // average time between one entrance and the next
 let RAILS="dance";             // straight rails, or a dance in the font's nature
-let LINE_LEN=6;                // line length in cap heights; at the max it is endless
-let FEEL="organic";            // organic: curvature slows the pen, width follows
+let LINE_LEN=5.5;              // line length in cap heights; at the max it is endless
+let FEEL="clean";              // organic: curvature slows the pen, width follows
                                // speed, a wake flutters behind the head
 let INK="#1c1a17";
 const RET_FRAC=0.4;            // tail retraction, as a slice of FORM_MS
 const TOL=0.8;                 // endpoint-on-stroke closer than this is a junction
-const DEFAULT_TEXT="what\nthe\nactual\nfuck";
+const DEFAULT_TEXT="what the actual fuck";
 
 /* real single-line fonts (SVG plotter fonts, fetched live) */
 const CDN="https://cdn.jsdelivr.net/gh/msurguy/cnc-text-tool@master/docs/fonts/";
@@ -64,9 +64,10 @@ const ctx=canvas.getContext("2d");
 const CAP=21, MID=11.5;        // our frame: cap spans y 1..22, baseline 22
 let W,H,DPR=1;
 let text=DEFAULT_TEXT;
-let FONTK="cutlings";
+let FONTK="round";
 const LOADED={round:{glyphs:LINE_FONT,lh:LH_DEFAULT()}};  // name → {glyphs,lh}
 let mode="in", born=0, outBorn=0;
+let REWB=null;                 // set = formation runs backward: lt=REWB-now
 function LH_DEFAULT(){ return 38; }
 
 const clamp01=t=>Math.max(0,Math.min(1,t));
@@ -525,6 +526,17 @@ const clampLen=(v,L)=>Math.max(0,Math.min(v,L));
    drifted ~4% — steps far below visibility */
 function fillRibbon(S){
   if(S.length<2) return;
+  // ink cannot step width instantly: clamp the gradient (≤ ~0.5px of
+  // width per px of arc, both directions) so every swell is a soft
+  // cone — no disc shoulder that a moving cut end sheds in one frame
+  for(let k=1;k<S.length;k++){
+    const m=0.5*Math.hypot(S[k][0]-S[k-1][0],S[k][1]-S[k-1][1])+0.4;
+    if(S[k][2]>S[k-1][2]+m) S[k][2]=S[k-1][2]+m;
+  }
+  for(let k=S.length-2;k>=0;k--){
+    const m=0.5*Math.hypot(S[k][0]-S[k+1][0],S[k][1]-S[k+1][1])+0.4;
+    if(S[k][2]>S[k+1][2]+m) S[k][2]=S[k+1][2]+m;
+  }
   let i=0;
   while(i<S.length-1){
     const w0=S[i][2];
@@ -742,6 +754,34 @@ function draw(now){
   const Lpx=LINE_LEN>=6?Infinity:LINE_LEN*CAP*s;
   const VCAP=0.85*Math.max(W,H)/1000;   // top cruise speed: px per ms
 
+  // one law for every traveling end — head, tail fold, drain front:
+  // the exact expo launch and landing of the given tempo, but the
+  // cruise through the middle never exceeds VCAP; a long sweep spends
+  // longer cruising instead of racing
+  const sweep=(S,T0)=>{
+    if(easeIO.peak*S/T0<=VCAP) return {
+      T:T0,
+      at:q=>easeIO(q/T0)*S,
+      vel:q=>(q<=0||q>=T0)?0:EASE_SLOPE(easeIO(q/T0))*S/T0,
+    };
+    const t1=Math.max(0.001,(10+Math.log2(VCAP*T0*easeIO.F1/(S*easeIO.K)))/20);
+    const tr=t1*T0;
+    const dR=S*easeIO.raw(t1)/easeIO.F1;
+    const tMid=Math.max(0,S-2*dR)/VCAP;
+    const T=2*tr+tMid;
+    const at=q=>q<=0?0
+      :q<tr?S*easeIO.raw(q/T0)/easeIO.F1
+      :q<tr+tMid?dR+VCAP*(q-tr)
+      :q<T?S-S*easeIO.raw((T-q)/T0)/easeIO.F1
+      :S;
+    return {T,at,vel:q=>{
+      if(q<=0||q>=T) return 0;
+      if(q<tr) return 2*easeIO.K*at(q)/T0;
+      if(q<tr+tMid) return VCAP;
+      return 2*easeIO.K*(S-at(q))/T0;
+    }};
+  };
+
   // organic rail: drawn in short runs — width follows the pen's local
   // speed (global ease over curvature effort), and a damped wake
   // flutters behind the moving end, settling as it passes
@@ -860,7 +900,7 @@ function draw(now){
   for(const ch of text) if(ch!=="\n") totalLines+=buildNet(ch).compGroups.length;
   const releasing=mode==="out";
   const WINDOW=GAP_MS*totalLines;
-  const lt=releasing?now-outBorn:now-born;
+  const lt=releasing?now-outBorn:(REWB!==null?REWB-now:now-born);
   const seed=born;               // the release keeps the entrance's order
 
   let allCovered=true, allArrived=true, allGone=true;
@@ -970,10 +1010,34 @@ function draw(now){
         const Et=(FEEL==="organic"&&d.path)?d.path.Et:d.A;
         const S2=Et+d.depth*s;
         d.spanEff=S2;
+        // where the journey becomes visible: the arc (and effort) at
+        // which the path first enters the screen, measured once
+        if(d.path&&d.path.visA===undefined){
+          const P2=d.path;
+          let va=0,ve=0,j2=0;
+          for(let a2=20;a2<P2.A;a2+=20){
+            while(j2<P2.cum.length-2&&P2.cum[j2+1]<a2) j2++;
+            const sp=(P2.cum[j2+1]-P2.cum[j2])||1;
+            const t2=(a2-P2.cum[j2])/sp;
+            const qx=P2.pts[j2][0]+(P2.pts[j2+1][0]-P2.pts[j2][0])*t2;
+            const qy=P2.pts[j2][1]+(P2.pts[j2+1][1]-P2.pts[j2][1])*t2;
+            if(qx>=0&&qx<=W&&qy>=0&&qy<=H) break;
+            va=a2; ve=P2.eff[j2]+(P2.eff[j2+1]-P2.eff[j2])*t2;
+          }
+          P2.visA=va; P2.visE=ve;
+        }
+        d.visA=d.path?d.path.visA:Math.min(60,d.A*0.5);
+        // the head start: the expo creep through the OFF-SCREEN tail
+        // is skipped — from the first moment, the line is meeting the
+        // screen edge, and all the easing happens in view
+        const visE=d.path?(FEEL==="organic"?d.path.visE:d.path.visA):d.visA;
+        const rE=visE*easeIO.F1/S2;
+        d.skipT=rE>1e-9?Math.min(easeIO.t1*FORM_MS,
+          Math.max(0,FORM_MS*(10+Math.log2(2*rE))/20)):0;
         // speed cap on the PLATEAU only: the launch and the landing
         // keep the tempo's exact accel curve; a journey too long to
         // cruise under the cap spends longer in the middle instead
-        const tt=lt-d.delay;
+        const tt=lt-d.delay+(releasing?0:d.skipT);
         let ge;
         if(easeIO.peak*S2/FORM_MS<=VCAP){
           d.T=FORM_MS;
@@ -1004,7 +1068,7 @@ function draw(now){
           d.g=ge;
         }
         if(!releasing&&d.g<d.A-0.5) allArrived=false;
-        if(releasing&&d.g>0.5) allGone=false;
+        if(releasing&&d.g>d.visA+0.5) allGone=false;   // off-screen counts as gone
         doors.push(d);
       }
 
@@ -1044,16 +1108,18 @@ function draw(now){
         let tc;
         if(!releasing){
           // fold from wherever the tail actually is, in proportional
-          // time — a short line's stub never sits waiting
+          // time — a short line's stub never sits waiting, and the
+          // fold cruises under the same cap as everything else
           const wormTc=Lpx<Infinity?Math.max(0,Math.min(d.A,d.span-Lpx)):0;
           const remain=Math.max(d.A-wormTc,1e-6);
           const dur=Math.max(RET()*0.15,RET()*remain/Math.max(d.A,1));
-          const tR=(lt-d.delay-d.T)/dur;
-          tc=tR<=0?0:wormTc+easeIO(tR)*remain;
+          const q=lt-d.delay+(d.skipT||0)-d.T;
+          tc=q<=0?0:wormTc+sweep(remain,dur).at(q);
           if(Lpx<Infinity) tc=Math.max(tc,Math.min(d.A,d.g-Lpx));
         }else if(Lpx===Infinity){
-          // endless lines reach all the way out and drain through
-          tc=(1-easeIO((lt-d.delay)/RET()))*d.A;
+          // endless lines reach all the way out and drain through,
+          // the front cruising under the cap too
+          tc=d.A-sweep(d.A,RET()).at(lt-d.delay);
         }else{
           // finite lines conserve: what drains out of the letter IS
           // the line — a column whose front starts moving with the
@@ -1064,10 +1130,9 @@ function draw(now){
           if(FEEL==="organic"&&d.path){
             d.vAnchor=d.vHead||0;
             if(releasing&&Lpx===Infinity){
-              // the endless drain's front rides the RET sweep, not
+              // the endless drain's front rides its own sweep, not
               // the door clock — the wake trails that end instead
-              const tR=(lt-d.delay)/RET();
-              d.vAnchor=(tR<=0||tR>=1)?0:EASE_SLOPE(easeIO(tR))*d.A/RET();
+              d.vAnchor=sweep(d.A,RET()).vel(lt-d.delay);
             }
             railOrganic(d,tc,head,releasing?tc:head,releasing?-1:1);
           }
@@ -1086,7 +1151,8 @@ function draw(now){
 
   // the moments the whole text crosses its thresholds
   if(!releasing){
-    if(FORMED_AT===null&&totalLines&&allCovered&&allArrived) FORMED_AT=now;
+    if(REWB!==null&&lt<=0) reform();     // rewound all the way out
+    else if(REWB===null&&FORMED_AT===null&&totalLines&&allCovered&&allArrived) FORMED_AT=now;
   }else if(lt>RET()&&allGone){
     reform();
   }
@@ -1098,9 +1164,14 @@ function frame(now){
 }
 
 window.addEventListener("resize",layout);
+/* the click outranks the state: standing letters release, letters
+   still forming turn back the way they came, and anything on its way
+   out is answered with a fresh formation from beyond the screen */
 canvas.addEventListener("pointerdown",()=>{
   const now=performance.now();
-  if(mode==="in"&&formedAll(now)){ mode="out"; outBorn=now; BRIDGE_BOXES=[]; }
+  if(mode==="out"||REWB!==null){ reform(); return; }
+  if(FORMED_AT!==null){ mode="out"; outBorn=now; BRIDGE_BOXES=[]; return; }
+  REWB=2*now-born;               // reflect the clock: play it backward
 });
 
 /* ---- the panel ------------------------------------------------------ */
@@ -1138,7 +1209,7 @@ function makeDraggable(el){
 makeDraggable(K("panel"));
 
 function reform(){
-  mode="in"; born=performance.now(); FORMED_AT=null;
+  mode="in"; born=performance.now(); FORMED_AT=null; REWB=null;
   DANCE_CACHE=new Map();
   BRIDGE_BOXES=[];
 }

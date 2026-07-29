@@ -14,7 +14,9 @@
    - At rest a mesh faces the camera dead-on, so only its black
      front cap is visible: genuinely flat, until it isn't.
 
-   Wave / tween / pose rules are identical to sketch.js.
+   Letters pop on hover (cursor proximity) and on click (a wave
+   front sweeps the whole word); each letter takes the stronger of
+   the two influences. Tween/pose rules are unchanged.
    Knobs live in config.js.
    ------------------------------------------------------------ */
 
@@ -50,6 +52,7 @@ const hint=document.getElementById("hint");
 const textbox=document.getElementById("textbox");
 
 let letters=[];
+const pointer={x:-1e9, y:-1e9};     // cursor, viewport px — parked far away = everyone asleep
 let sMin=Infinity, sMax=-Infinity;  // wave axis extent — set by fit()
 let wave=null;                      // {t0} while a sweep is running
 
@@ -226,7 +229,7 @@ function fit(){
   for(const el of word.querySelectorAll(".slot")) el.style.transform="";
 
   // measure the slots once per layout, then anchor the meshes to them:
-  // wave centers (cx/cy/s) + glyph-center world position (mx/my)
+  // hover centers (cx/cy) + glyph-center world position (mx/my)
   geoCache.forEach(g=>{ if(g){ g.geo.dispose(); g.edges.dispose(); } });
   geoCache.clear();
   const padPx=0.02*F;                        // .slot horizontal padding
@@ -282,10 +285,10 @@ function fit(){
     for(const L of g){ L.cx+=shift; L.mx+=shift; L.mesh.position.x=L.mx; }
   }
 
-  // wave axis (may have shifted a hair from the re-centering)
+  // wave axis (cx already re-centered above)
   sMin=Infinity; sMax=-Infinity;
   for(const L of letters){
-    L.s=(L.cx+L.cy)/Math.SQRT2;   // cx already re-centered above
+    L.s=(L.cx+L.cy)/Math.SQRT2;
     if(L.s<sMin)sMin=L.s;
     if(L.s>sMax)sMax=L.s;
   }
@@ -318,12 +321,14 @@ function rollPose(i){
   };
 }
 
-/* ---- click wave ---------------------------------------------- */
-stage.addEventListener("pointerdown",e=>{
-  if(e.target===textbox) return;                // typing ≠ triggering
+/* ---- hover + click wave --------------------------------------- */
+stage.addEventListener("pointermove",e=>{ pointer.x=e.clientX; pointer.y=e.clientY; });
+stage.addEventListener("pointerdown",e=>{   // click launches the sweep
+  if(e.target===textbox) return;            // typing ≠ triggering
+  pointer.x=e.clientX; pointer.y=e.clientY;
   wave={t0:performance.now()};
-  hint.classList.add("gone");
 });
+stage.addEventListener("pointerleave",()=>{ pointer.x=-1e9; pointer.y=-1e9; });
 
 /* ---- animation loop ------------------------------------------ */
 let prev=performance.now();
@@ -338,8 +343,11 @@ function frame(now){
   }
 
   for(const L of letters){
-    const d=Math.abs(L.s-front);
-    L.target=clamp(1-(d-WAVE.inner)/(WAVE.outer-WAVE.inner),0,1);
+    const dH=Math.hypot(L.cx-pointer.x, L.cy-pointer.y);   // cursor proximity
+    const dW=Math.abs(L.s-front);                          // distance to the wave front
+    L.target=Math.max(
+      clamp(1-(dH-HOVER.inner)/(HOVER.outer-HOVER.inner),0,1),
+      clamp(1-(dW-WAVE.inner)/(WAVE.outer-WAVE.inner),0,1));
 
     // fully asleep and staying asleep: no writes at all
     if(L.p===0 && L.target===0){
@@ -347,11 +355,11 @@ function frame(now){
       if(!L.asleep){ L.slot.classList.add("asleep"); L.asleep=true; }
       continue;
     }
-    if(L.asleep){ L.slot.classList.remove("asleep"); L.asleep=false; }
+    if(L.asleep){ L.slot.classList.remove("asleep"); L.asleep=false; hint.classList.add("gone"); }
 
     if(!L.pose){ L.pose=rollPose(L.i); rollBurst(L); }
 
-    L.p += Math.sign(L.target-L.p)*Math.min(Math.abs(L.target-L.p), dt*POSE.speed);
+    L.p += Math.sign(L.target-L.p)*Math.min(Math.abs(L.target-L.p), dt/POSE.time);
     const e=easeInOut(L.p);
     const P=L.pose;
 

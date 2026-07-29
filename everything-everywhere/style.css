@@ -48,7 +48,7 @@ html,body{ margin:0; }
 .letter{ position:relative; visibility:hidden; }
 
 /* asleep letters drop their burst from the render tree — invisible
-   at rest (scale 0) so the browser only pays near the wave */
+   at rest (scale 0) so the browser only pays near the cursor */
 .slot.asleep .burst{ display:none; }
 
 /* ---- burst: images exploding from behind the letter ----------
