@@ -52,6 +52,7 @@ const hint=document.getElementById("hint");
 const textbox=document.getElementById("textbox");
 
 let letters=[];
+let sectorOrder=[];                 // random letter→sector deal — see build()
 const pointer={x:-1e9, y:-1e9};     // cursor, viewport px — parked far away = everyone asleep
 let sMin=Infinity, sMax=-Infinity;  // wave axis extent — set by fit()
 let wave=null;                      // {t0} while a sweep is running
@@ -209,6 +210,14 @@ function build(text){
       word.appendChild(chunk);
     }
   }
+  // sectors stay exclusive (no two letters fly the same way) but are
+  // dealt randomly: keyed on the letter index, pose direction rotates
+  // steadily along the text and a long line pops in a corkscrew
+  sectorOrder=[...letters.keys()];
+  for(let k=sectorOrder.length-1;k>0;k--){      // Fisher–Yates shuffle
+    const j=(Math.random()*(k+1))|0;
+    [sectorOrder[k],sectorOrder[j]]=[sectorOrder[j],sectorOrder[k]];
+  }
   fit();
 }
 
@@ -310,7 +319,7 @@ document.fonts.ready.then(fit);   // re-measure once the browser's copy of the f
 function rollPose(i){
   const n=letters.length;
   const sector=TAU/n;
-  const ang=SECTOR_OFFSET + i*sector + sector*0.5 + rnd(-0.38,0.38)*sector;
+  const ang=SECTOR_OFFSET + sectorOrder[i]*sector + sector*0.5 + rnd(-0.38,0.38)*sector;
   const R=rnd(...POSE.radius);
   return {
     x:      Math.cos(ang)*R,
