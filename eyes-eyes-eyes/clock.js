@@ -49,6 +49,7 @@ const COUNT={
   blinkMs:700,             // crowd-blink stagger window on each change
   digitSize:1,             // digit height as a fraction of the screen
   centerY:0.6,            // vertical anchor: 0.5 = screen center, higher = lower
+  shade:"blue",            // which open eye draws the digits: "blue" | "green"
   font:'300 FSpx "Arial Rounded MT Bold","SF Pro Rounded",ui-rounded,sans-serif',
 };
 const CELLS={
@@ -262,7 +263,7 @@ const MODES={
         for(const e of eyes){
           const mx=Math.round(e.c*cellW*st.MS), my=Math.round(e.r*cellH*st.MS);
           const inside=mx>=0&&my>=0&&mx<mw&&my<mh&&st.maskData[(my*mw+mx)*4+3]>120;
-          const target=inside?"green":null;
+          const target=inside?COUNT.shade:null;
           if(target!==e.paint){ e.next=target; e.flipAt=now+Math.random()*COUNT.blinkMs; }
           else e.next=target;
         }
