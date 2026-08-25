@@ -55,6 +55,11 @@
     text-decoration:underline; text-underline-offset:.35em;
     text-decoration-thickness:1px; text-decoration-color:rgba(28,26,23,.3);
   }
+  a.piece.murw{
+    font-family:ui-sans-serif,system-ui,"Helvetica Neue",sans-serif;
+    font-weight:200; font-style:italic; text-transform:lowercase; letter-spacing:.3em;
+    font-size:clamp(18px,3.6vw,44px);
+  }
   /* hover: the flat word pops into a little extrusion — a wink at the sketches */
   a.piece:hover, a.piece:focus-visible{
     transform:translate(-3px,-6px);
@@ -115,6 +120,12 @@
 </svg>
 
 <a class="piece loose" href="loose-ends/">loose ends</a>
+
+<svg class="string" viewBox="0 0 600 64" aria-hidden="true">
+  <polyline/>
+</svg>
+
+<a class="piece murw" href="murmur-words/">murmur words</a>
 
 <script src="string.js"></script>
 </body>
