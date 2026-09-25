@@ -18,9 +18,14 @@
 
 /* ---- knobs --------------------------------------------------------- */
 const P = { birds: 10000, scatter: 0, hold: 2, mhold: 1, coh: 1.0, tempo: 1.6, words: true,
-            fx: true, sheen: true };
+            fx: true, sheen: true, flow: 0.30, turb: 2, tail: 1 };
 /* dev hook: any knob can be overridden by query param, e.g. ?coh=0.4 */
 for (const [k, v] of new URLSearchParams(location.search)) if (k in P) P[k] = parseFloat(v);
+/* dev hook: ?seed=N makes a run repeatable (whims, roost, the deal) */
+{ const m = /seed=(\d+)/.exec(location.search);
+  if (m){ let a = +m[1] | 0;
+    Math.random = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0)/4294967296; }; } }
 
 /* ---- constants ------------------------------------------------------ */
 const MAXB   = 10000;
@@ -75,7 +80,17 @@ let W, H, FL, dpr;
 let XMAX, YTOP, YBOT;
 const sky  = document.createElement('canvas');
 const fore = document.createElement('canvas');
-const NDB = 50, NLB = 40;  // dots: 0-9 ink tone, 10-49 sheen (depth x hue bin)
+/* worms: every bird keeps a short ring of where it has just been, and a
+   word bird draws the whole thing — a curved trail, not a dash. The
+   letter is written by thousands of small swimming strokes, and the
+   curvature IS the flight: a bird riding the current draws a long clean
+   arc, a jostled one draws a squiggle. Wild birds keep their dashes */
+const WRM = 10;                        // frames of history kept per bird
+const wrx = new Float32Array(MAXB*WRM), wry = new Float32Array(MAXB*WRM);
+let wrHead = 0;
+const IBUF = Array.from({ length: 6 }, () => new Int32Array(MAXB));
+const ICNT = new Int32Array(6);
+const NDB = 56, NLB = 40;  // dots 0-9 tone, 10-49 sheen; 50-55 = the word's ink dots (by heading)
 const BUF = Array.from({ length: NDB }, () => new Float32Array(MAXB*2));
 const BCNT = new Int32Array(NDB);
 const LBUF = Array.from({ length: NLB }, () => new Float32Array(MAXB*4));
@@ -83,7 +98,8 @@ const LCNT = new Int32Array(NLB);
 const ZC = [725, 900, 1100, 1300, 1475];
 const AL = [0.60, 0.53, 0.46, 0.38, 0.31];
 const SZ = new Float32Array(10); const FS = new Array(10);
-const SH = new Array(30), SD = new Array(40);
+const SH = new Array(30), SD = new Array(40), SI = new Array(6);
+const INK_D = 50;               // first ink bucket in BUF (worms index their own, see IBUF)
 
 function resize(){
   dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -105,22 +121,13 @@ function resize(){
 function paintSky(){
   sky.width = W*dpr; sky.height = H*dpr;
   const c = sky.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const g = c.createLinearGradient(0, 0, 0, H);       // paper, barely graded
-  g.addColorStop(0.00, '#f5f3ee'); g.addColorStop(0.55, '#faf9f6');
-  g.addColorStop(1.00, '#f0e9db');
-  c.fillStyle = g; c.fillRect(0, 0, W, H);
-  const sun = c.createRadialGradient(W*0.40, H*0.90, 0, W*0.40, H*0.90, W*0.5);
-  sun.addColorStop(0, 'rgba(214,166,90,0.13)'); sun.addColorStop(1, 'rgba(214,166,90,0)');
-  c.fillStyle = sun; c.fillRect(0, 0, W, H);
+  c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);      // plain white paper
 }
 
 function paintFore(){
   fore.width = W*dpr; fore.height = H*dpr;
   const c = fore.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  c.clearRect(0, 0, W, H);
-  const v = c.createRadialGradient(W/2, H*0.45, Math.min(W, H)*0.42, W/2, H*0.45, Math.hypot(W, H)*0.6);
-  v.addColorStop(0, 'rgba(28,26,23,0)'); v.addColorStop(1, 'rgba(28,26,23,0.12)');
-  c.fillStyle = v; c.fillRect(0, 0, W, H);
+  c.clearRect(0, 0, W, H);                           // no vignette: the white stays white
 }
 
 /* ---- the roost ------------------------------------------------------ */
@@ -147,6 +154,7 @@ function initBirds(){
     const a = Math.random()*6.283, b = (Math.random() - 0.5)*1.2;
     vx[i] = Math.cos(a)*Math.cos(b)*CRUISE; vy[i] = Math.sin(b)*CRUISE; vz[i] = Math.sin(a)*Math.cos(b)*CRUISE;
     fear[i] = 0; vis[i] = 26;
+    for (let k = 0; k < WRM; k++){ wrx[k*MAXB + i] = px[i]; wry[k*MAXB + i] = py[i]; }
   }
   nbn.fill(0);
 }
@@ -199,6 +207,30 @@ let typed = '', typedT = 0;
    only walls, felt near and beyond the edge. */
 let SDF = null, SGW = 0, SGH = 0, SOX = 0, SOY = 0, SCELL = 1, letX = 0, letY = 0;
 const SDF_M = 2.5;                    // margin (cells) where the walls begin
+/* the current: the field's normal turned a quarter is the stroke's own
+   direction. It flips across the stroke's spine, so each stroke carries
+   two lanes — up one side, down the other — and the flock CIRCULATES
+   through the glyph like ink through a pen. Neighbouring letters run
+   opposite ways, so the word has a rhythm */
+let NXF = null, NYF = null, TXF = null, TYF = null, letDir = null;
+function buildFlow(gw, gh){
+  const n = gw*gh;
+  NXF = new Float32Array(n); NYF = new Float32Array(n);
+  for (let y = 1; y < gh - 1; y++) for (let x = 1; x < gw - 1; x++){
+    const id = y*gw + x;
+    const gdx = SDF[id + 1] - SDF[id - 1], gdy = SDF[id + gw] - SDF[id - gw];
+    const gl = Math.sqrt(gdx*gdx + gdy*gdy) || 1;
+    NXF[id] = gdx/gl; NYF[id] = gdy/gl;
+  }
+  // one blur so the chamfer's staircase does not jitter the lanes
+  TXF = new Float32Array(n); TYF = new Float32Array(n);
+  for (let y = 1; y < gh - 1; y++) for (let x = 1; x < gw - 1; x++){
+    const id = y*gw + x;
+    let sx = 0, sy = 0;
+    for (let k = -gw; k <= gw; k += gw) for (let j = -1; j <= 1; j++){ sx -= NYF[id + k + j]; sy += NXF[id + k + j]; }
+    TXF[id] = sx/9; TYF[id] = sy/9;
+  }
+}
 
 /* even occupancy without stillness: every contained bird keeps a WEAK
    affinity to a random interior point and re-rolls it every few seconds.
@@ -220,6 +252,31 @@ const RAMP = 72, STAG_R = 140;
 const fw = new Float32Array(MAXB);        // 0 = flock bird, 1 = word bird
 const fd = new Float32Array(MAXB);        // per-bird transition delay, steps
 let formClock = 0;
+/* the gate: no stagger can guess flight times (the knot is slow, flights
+   wander), so the fill is closed-loop instead — every frame each letter
+   is counted, and a letter may launch more birds only while it is not
+   ahead of the emptiest one. All glyphs fill at the pace of the slowest:
+   equal from the first bird, by construction */
+let letQuota = new Float32Array(0), letIn = new Int32Array(0), letGate = new Uint8Array(0);
+function sizeGate(n){
+  if (letQuota.length >= n) return;
+  letQuota = new Float32Array(n); letIn = new Int32Array(n); letGate = new Uint8Array(n);
+}
+let fillMinR = 0, formMax = 0;
+function countFill(){
+  letIn.fill(0, 0, nLet);
+  for (let i = 0; i < nT; i++){
+    if (fw[i] < 0.5) continue;
+    const gx = (px[i] - SOX)/SCELL, gy = (py[i] - SOY)/SCELL;
+    if (gx >= 1 && gy >= 1 && gx < SGW - 1 && gy < SGH - 1 && SDF[(gy|0)*SGW + (gx|0)] <= 0.6){
+      const l = lb[i];
+      if (!(px[i] < letL[l] - 12 || px[i] > letR[l] + 12 || py[i] < letT[l] - 12 || py[i] > letB[l] + 12)) letIn[l]++;
+    }
+  }
+  fillMinR = 9;
+  for (let l = 0; l < nLet; l++){ const r = letIn[l]/letQuota[l]; if (r < fillMinR) fillMinR = r; }
+  for (let l = 0; l < nLet; l++) letGate[l] = letIn[l]/letQuota[l] <= fillMinR + 0.06 ? 1 : 0;
+}
 
 /* the glyph is set in real bold type, rasterized to a coarse grid, and
    turned into a signed distance field by two chamfer sweeps */
@@ -303,6 +360,7 @@ function planWord(text){
   chamfer(dOut, gw, gh); chamfer(dIn, gw, gh);
   for (let i = 0; i < gw*gh; i++) dOut[i] -= dIn[i];     // signed: <0 inside
   SDF = dOut; SGW = gw; SGH = gh;
+  buildFlow(gw, gh);
   SCELL = CP/s0;                                         // one cell in world units
   SOX = -(gw*CP)/2/s0;                                   // block centred on screen
   SOY = (H*(0.42 - HOR) - (gh*CP)/2)/s0;
@@ -335,11 +393,14 @@ function planWord(text){
   }
   nLet = own.length;
   if (!nLet) return false;
+  sizeGate(nLet);
   letL = new Float32Array(ox0); letR = new Float32Array(ox1);
   letT = new Float32Array(oy0); letB = new Float32Array(oy1);
   // dealing order runs by centre-x so stacked letters share nearby slices
   dealOrd = Array.from({ length: nLet }, (_, k) => k)
     .sort((a, b) => (letL[a] + letR[a]) - (letL[b] + letR[b]));
+  letDir = new Int8Array(nLet);
+  for (let k = 0; k < nLet; k++) letDir[dealOrd[k]] = (k & 1) ? -1 : 1;
   homeStart = new Int32Array(nLet + 1);
   let tot = 0;
   for (let k = 0; k < nLet; k++){ homeStart[k] = tot; tot += own[k].length/2; }
@@ -363,9 +424,9 @@ function summon(text){
   idx.sort((a, b) => px[a] - px[b]);
   // each letter's share of the flock is PROPORTIONAL TO ITS INK AREA —
   // uniform density everywhere: a fat O and a thin I read the same
-  const quota = new Float32Array(nLet);
+  const quota = letQuota;
   for (let k = 0; k < nLet; k++)
-    quota[k] = (homeStart[k + 1] - homeStart[k])/nHomes*nT;
+    quota[k] = Math.max(1, (homeStart[k + 1] - homeStart[k])/nHomes*nT);
   const dst = new Float32Array(nT);
   let di = 0, cum = quota[dealOrd[0]];
   for (let r = 0; r < nT; r++){
@@ -375,19 +436,33 @@ function summon(text){
     const ddx = homes[hom[i]*2] - px[i], ddy = homes[hom[i]*2 + 1] - py[i];
     dst[i] = Math.sqrt(ddx*ddx + ddy*ddy);
   }
-  // the stagger compensates travel time AT FLIGHT RATE: the farthest
-  // commuters launch first, near birds linger, arrivals land together and
-  // every glyph fills at one rate — not the close letters first. The
-  // reference is the 95th-percentile distance (one straggler must not
-  // stretch every delay) and the form window takes whatever it needs
+  // arrivals are SCHEDULED, not launches: within each letter the birds are
+  // ranked by distance and handed evenly spaced arrival slots across one
+  // shared window — near birds early, far birds late — so every glyph
+  // gains birds at the same steady rate from the first frame to the last
+  // (a stagger that lands everyone together lets the far letters' birds
+  // all go at once and arrive as a wave). The launch is the slot minus
+  // the flight, at the actual cruise times 0.4: nobody flies a straight
+  // line. The window is the 95th-percentile flight (one straggler must
+  // not stretch it) and the gate below corrects what this guess misses
+  const spd = CRUISE*P.tempo*0.4;
   const ds = dst.slice().sort();
-  const dref = ds[Math.min(nT - 1, (nT*0.95)|0)];
+  const TF = ds[Math.min(nT - 1, (nT*0.95)|0)]/spd;
+  const byL = Array.from({ length: nLet }, () => []);
+  for (let i = 0; i < nT; i++) byL[lb[i]].push(i);
   let fdmax = 0;
-  for (let i = 0; i < nT; i++){
-    fd[i] = Math.max(0, (dref - dst[i]))*0.5 + rnd()*30;
-    if (fd[i] > fdmax) fdmax = fd[i];
+  for (const arr of byL){
+    arr.sort((a, b) => dst[a] - dst[b]);
+    const n = arr.length;
+    for (let k = 0; k < n; k++){
+      const i = arr[k];
+      fd[i] = Math.max(0, TF*(k + 0.5)/n - dst[i]/spd) + rnd()*12;
+      if (fd[i] > fdmax) fdmax = fd[i];
+    }
   }
   MODE = 'form'; modeT = (fdmax + RAMP + 40)|0; formClock = 0;
+  formMax = modeT*3;                       // the gate may stretch the window, within reason
+  letGate.fill(1, 0, nLet);
   return true;
 }
 function release(){
@@ -432,13 +507,15 @@ function step(){
       if (!t || !summon(t)) modeT = 120;
     }
   } else if (MODE === 'form'){
-    if (modeT <= 0){ MODE = 'hold'; modeT = ((P.hold + 0.12*lastLen)*60)|0; }
+    // the word is up when the emptiest letter is nearly full, or at the cap
+    if (modeT <= 0 && (fillMinR >= 0.8 || formClock > formMax)){ MODE = 'hold'; modeT = ((P.hold + 0.12*lastLen)*60)|0; }
   } else if (MODE === 'hold'){
     if (modeT <= 0) release();
   } else if (MODE === 'release'){
     if (modeT <= 0){ nT = 0; MODE = 'free'; modeT = queued ? 30 : (P.mhold*60)|0; }
   }
 
+  if (nT && SDF && (MODE === 'form' || MODE === 'hold') && (frame & 3) === 0) countFill();
   const whimOn = WHIM.dur > 0, wl = Math.min(WHIM.i, COUNT - 1);
   const wcx = px[wl], wcy = py[wl], wcz = pz[wl];
   const wg = whimOn ? 0.18*Math.sin(Math.PI*WHIM.age/WHIM.total) : 0;
@@ -456,7 +533,7 @@ function step(){
 
   const K = 7, cap = Math.min(NBMAX, K*2 + 6);
   const falOn = FAL.on, fx0 = FAL.x, fy0 = FAL.y, fz0 = FAL.z;
-  const cohW = WC*P.coh;
+  const cohW = WC*P.coh, tk = P.tempo/1.6;
   let sX = 0, sY = 0, sZ = 0, sVX = 0, sVY = 0, sVZ = 0;
 
   for (let i = 0; i < COUNT; i++){
@@ -466,7 +543,7 @@ function step(){
     let w = 0;
     if (i < nT){
       if (MODE === 'release'){ if (formClock > fd[i] && fw[i] > 0) fw[i] = Math.max(0, fw[i] - 1/RAMP); }
-      else if (formClock > fd[i] && fw[i] < 1) fw[i] = Math.min(1, fw[i] + 1/RAMP);
+      else if (formClock > fd[i] && fw[i] < 1 && (fw[i] > 0 || letGate[lb[i]])) fw[i] = Math.min(1, fw[i] + 1/RAMP);
       const f = fw[i]; w = f*f*(3 - 2*f);        // smoothstep: ease in, ease out
     }
     const wflock = 1 - w;
@@ -562,11 +639,10 @@ function step(){
       } else {
         const id = (gy|0)*SGW + (gx|0);
         const s = SDF[id];
+        // ride the current — commuters cross the lanes, they don't join
+        if (!commuting){ const fl = P.flow*wf*letDir[li]; fx += TXF[id]*fl; fy += TYF[id]*fl; }
         if (s > -SDF_M){
-          const gdx = SDF[id + 1] - SDF[id - 1];
-          const gdy = SDF[id + SGW] - SDF[id - SGW];
-          const gl = Math.sqrt(gdx*gdx + gdy*gdy) || 1;
-          const nx2 = gdx/gl, ny2 = gdy/gl;
+          const nx2 = NXF[id], ny2 = NYF[id];
           const push = Math.min(1.6, 0.16*(s + SDF_M))*wf;
           fx -= nx2*push; fy -= ny2*push;
           if (s > -0.6 && !commuting){
@@ -616,7 +692,7 @@ function step(){
     // turbulence grows inside the vessel — it stands in for the heading-
     // scatter that full-size separation used to provide (but not in depth:
     // the sheet stays flat)
-    const nA = 1 + 4*w;
+    const nA = 1 + P.turb*w;
     fx += (rnd() - 0.5)*0.05*nA;
     fy += (rnd() - 0.5)*0.04*nA;
     fz += (rnd() - 0.5)*0.05*(1 - 0.7*w);
@@ -633,7 +709,12 @@ function step(){
     if (fmax > fear[i]) fear[i] += (fmax*0.9 - fear[i])*0.3;
     fear[i] *= 0.955;
 
-    const am = (0.5 + 0.35*w)*(1 + 2.2*fear[i]);
+    // tempo scales the forces WITH the cruise: a slow tempo is the same
+    // choreography traced slower, not a looser physics (else the sheet's
+    // crowd pressure stays put while the walls' grip on velocity fades,
+    // and slow letters spill)
+    fx *= tk; fy *= tk; fz *= tk;
+    const am = (0.5 + 0.35*w)*(1 + 2.2*fear[i])*tk;
     const fm2 = fx*fx + fy*fy + fz*fz;
     if (fm2 > am*am){ const s = am/Math.sqrt(fm2); fx *= s; fy *= s; fz *= s; }
 
@@ -649,6 +730,10 @@ function step(){
     sX += px[i]; sY += py[i]; sZ += pz[i]; sVX += vx[i]; sVY += vy[i]; sVZ += vz[i];
   }
 
+  wrHead = (wrHead + 1) % WRM;
+  { const o = wrHead*MAXB;
+    for (let i = 0; i < COUNT; i++){ wrx[o + i] = px[i]; wry[o + i] = py[i]; } }
+
   const inv = 1/Math.max(1, COUNT);
   cenX = sX*inv; cenY = sY*inv; cenZ = sZ*inv;
   mvX = sVX*inv; mvY = sVY*inv; mvZ = sVZ*inv;
@@ -656,7 +741,7 @@ function step(){
 
 /* ---- render --------------------------------------------------------- */
 function render(){
-  BCNT.fill(0);
+  BCNT.fill(0); ICNT.fill(0);
   const fxOn = P.fx, sheenOn = P.sheen;
   if (fxOn) LCNT.fill(0);
   if (sheenOn){
@@ -670,6 +755,17 @@ function render(){
     for (let d = 0; d < 5; d++) for (let j = 0; j < 8; j++)
       SD[d*8 + j] = `hsla(${(hb + j*45)%360},68%,46%,${AL[d]})`;
   }
+  // the word's ink: hue by heading as in the open sky (the lanes read as
+  // colour bands), ONE flat tone — no darker edge, and no fade beyond the
+  // glyph either. Belonging to the word is what makes a bird ink, not
+  // where it happens to be standing: a commuter crossing open paper is
+  // still writing, and its worm stays whole the whole way over
+  {
+    const hb = T*14;
+    for (let j = 0; j < 6; j++)
+      SI[j] = sheenOn ? `hsla(${(hb + j*60)%360},60%,46%,0.42)` : 'rgba(30,27,24,0.44)';
+  }
+  const inkOn = nT > 0;
 
   const cw = W/2, ch = H*HOR;
   for (let i = 0; i < COUNT; i++){
@@ -678,6 +774,17 @@ function render(){
     if (x < -6 || x > W + 6 || y < -6 || y > H + 6) continue;
     const b5 = z < 800 ? 0 : z < 1000 ? 1 : z < 1200 ? 2 : z < 1400 ? 3 : 4;
     const bt = fear[i] > 0.3 ? b5 + 5 : b5;
+    // in the letter state at all = ink, wherever it is standing
+    const ink = inkOn && i < nT && fw[i] > 0.5;
+    if (ink && fxOn){
+      // a word bird is a worm: only its index is kept, the body is read
+      // back out of the ring at draw time
+      let j = ((Math.atan2(vy[i], vx[i])*0.15915 + 0.5)*6)|0;
+      if (j > 5) j = 5;
+      const c = ICNT[j];
+      IBUF[j][c] = i; ICNT[j] = c + 1;
+      continue;
+    }
     if (fxOn){
       const sv = Math.sqrt(vx[i]*vx[i] + vy[i]*vy[i]);
       let L = (sv - 1.4)*2.4;
@@ -698,7 +805,7 @@ function render(){
         continue;
       }
     }
-    const bi = sheenOn ? 10 + b5*8 + ((i ^ (i >> 3)) & 7) : bt;
+    const bi = ink ? INK_D + ((i ^ (i >> 3)) % 6) : sheenOn ? 10 + b5*8 + ((i ^ (i >> 3)) & 7) : bt;
     const c = BCNT[bi], buf = BUF[bi];
     buf[c*2] = x; buf[c*2 + 1] = y; BCNT[bi] = c + 1;
   }
@@ -756,6 +863,37 @@ function render(){
         }
       }
     }
+  }
+
+  // the word, in worms: each bird's last few positions strung together,
+  // so the glyph is written in swimming strokes and the flight's own
+  // curvature shows. P.tail spaces the samples — a longer reach per worm
+  const S = Math.max(1, Math.min(3, Math.round(P.tail*2)));
+  const o3 = ((wrHead - 3*S) % WRM + WRM) % WRM * MAXB;
+  const o2 = ((wrHead - 2*S) % WRM + WRM) % WRM * MAXB;
+  const o1 = ((wrHead - S) % WRM + WRM) % WRM * MAXB;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'bevel';   // bevel: no miter spikes where a worm doubles back
+  for (let k = 0; k < 6; k++){
+    const n = ICNT[k]; if (!n) continue;
+    const idx = IBUF[k];
+    ctx.strokeStyle = SI[k]; ctx.lineWidth = Math.max(1, SZ[2]*0.9);
+    ctx.beginPath();
+    for (let c = 0; c < n; c++){
+      const i = idx[c], sp = FL/pz[i];
+      ctx.moveTo(cw + wrx[o3 + i]*sp, ch + wry[o3 + i]*sp);
+      ctx.lineTo(cw + wrx[o2 + i]*sp, ch + wry[o2 + i]*sp);
+      ctx.lineTo(cw + wrx[o1 + i]*sp, ch + wry[o1 + i]*sp);
+      ctx.lineTo(cw + px[i]*sp, ch + py[i]*sp);
+    }
+    ctx.stroke();
+  }
+  // fx off: the word falls back to plain dots
+  for (let k = 0; k < 6; k++){
+    const n = BCNT[INK_D + k]; if (!n) continue;
+    const buf = BUF[INK_D + k], sz = SZ[2], h = sz/2;
+    ctx.fillStyle = SI[k]; ctx.beginPath();
+    for (let c = 0; c < n; c++) ctx.rect(buf[c*2] - h, buf[c*2 + 1] - h, sz, sz);
+    ctx.fill();
   }
 
   if (FAL.on){
@@ -835,7 +973,7 @@ const stat = document.getElementById('stat');
 let fps = 60, statT = 0, msStep = 0, msDraw = 0;
 
 resize();
-window.addEventListener('resize', resize);
+window.addEventListener('resize', () => { resize(); render(); });   // paused too: a resize wipes the canvas
 initBirds();
 for (let i = 0; i < 140; i++) step();
 render();
@@ -844,12 +982,28 @@ render();
    is unreliable for screenshots — real browsers never hit this) */
 const mSteps = /steps=(\d+)/.exec(location.search);
 if (mSteps){
-  for (let i = 0, n = +mSteps[1]; i < n; i++) step();
+  running = false;                     // freeze there: the screenshot IS step N
+  // the wash accumulates across frames, so the run-up has to be RENDERED,
+  // not just stepped — the last stretch is enough for it to settle
+  const n = +mSteps[1], wet = Math.max(0, n - 240);
+  for (let i = 0; i < n; i++){ step(); if (i >= wet) render(); }
   render();
   let minS = 1e9, maxS = -1e9, neg = 0;
   if (SDF){ for (let i = 0; i < SGW*SGH; i++){ const v = SDF[i]; if (v < minS) minS = v; if (v > maxS) maxS = v; if (v < 0) neg++; } }
-  let mx = 0, my = 0; for (let i = 0; i < nT; i++){ mx += px[i]; my += py[i]; }
-  document.title = `${MODE} ${lastText} sdf[${minS|0},${maxS|0}] neg=${neg} grid=${SGW}x${SGH} nLet=${nLet} ` +
+  let mx = 0, my = 0, inside = 0;
+  const inL = new Float32Array(nLet);
+  for (let i = 0; i < nT; i++){
+    mx += px[i]; my += py[i];
+    if (SDF){ const gx = (px[i] - SOX)/SCELL, gy = (py[i] - SOY)/SCELL;
+      if (gx >= 1 && gy >= 1 && gx < SGW - 1 && gy < SGH - 1 && SDF[(gy|0)*SGW + (gx|0)] <= 0.6){ inside++; inL[lb[i]]++; } }
+  }
+  // per-letter fill relative to its area share: 1 = its fair share is in
+  let fillMin = 9, fillMax = 0;
+  for (let l = 0; l < nLet; l++){
+    const r = inL[l]/((homeStart[l + 1] - homeStart[l])/nHomes*Math.max(1, nT));
+    if (r < fillMin) fillMin = r; if (r > fillMax) fillMax = r;
+  }
+  document.title = `${MODE} ${lastText} in=${(100*inside/Math.max(1,nT))|0}% fill=${fillMin.toFixed(2)}..${fillMax.toFixed(2)} sdf[${minS|0},${maxS|0}] neg=${neg} grid=${SGW}x${SGH} nLet=${nLet} ` +
     `flock=(${(mx/Math.max(1,nT))|0},${(my/Math.max(1,nT))|0})`;
 }
 /* dev hook: ?bench=N runs N steps+renders back to back and reports the
