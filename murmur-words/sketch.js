@@ -17,8 +17,8 @@
    ============================================================ */
 
 /* ---- knobs --------------------------------------------------------- */
-const P = { birds: 10000, scatter: 0, hold: 2, mhold: 1, coh: 1.0, tempo: 1.6, words: true,
-            fx: true, sheen: true, flow: 0.30, turb: 2, tail: 1 };
+const P = { birds: 10000, scatter: 0, hold: 4, mhold: 6.5, coh: 1.0, tempo: 1.0, words: true,
+            fx: true, sheen: true, flow: 0.30, turb: 2, tail: 1, gath: 0.60 };
 /* dev hook: any knob can be overridden by query param, e.g. ?coh=0.4 */
 for (const [k, v] of new URLSearchParams(location.search)) if (k in P) P[k] = parseFloat(v);
 /* dev hook: ?seed=N makes a run repeatable (whims, roost, the deal) */
@@ -136,7 +136,11 @@ function paintFore(){
 let T = 0, lift = 0;
 const anchor = { x: 0, y: 0, z: 1050 };
 function moveAnchor(){
-  lift += ((MODE === 'free' ? 0 : 1) - lift)*0.02;
+  // the roost only climbs once the word STANDS. While it is forming, birds
+  // are still waiting for their launch slot down here — if the roost runs
+  // off to the top of the sky meanwhile, their real flight ends up far
+  // longer than the schedule reckoned and they straggle in late
+  lift += (((MODE === 'free' || MODE === 'gather' || MODE === 'form') ? 0 : 1) - lift)*0.02;
   // between words the roost hugs the centre of the frame — a modest
   // wander around the middle, not a tour of the sky
   anchor.x = XMAX*0.26 * (0.7*Math.sin(T*0.052 + 1.7) + 0.3*Math.sin(T*0.021));
@@ -198,7 +202,7 @@ function whimStep(){
 /* ---- the words ------------------------------------------------------ */
 /* every bird below nT owns one point sampled along the strokes of the
    current word; everyone else stays wild. */
-let WORDS = ['LOVE YOUR TRAGEDY'];   // the cycle — one sentence per words-box line
+let WORDS = ['LOVE YOUR TRAGEDY', 'IT IS BEAUTIFUL'];   // the cycle — one sentence per words-box line
 let nT = 0, MODE = 'free', modeT = 200, wi = 0, lastText = '', lastLen = 6, queued = null;
 let typed = '', typedT = 0;
 
@@ -252,30 +256,98 @@ const RAMP = 72, STAG_R = 140;
 const fw = new Float32Array(MAXB);        // 0 = flock bird, 1 = word bird
 const fd = new Float32Array(MAXB);        // per-bird transition delay, steps
 let formClock = 0;
-/* the gate: no stagger can guess flight times (the knot is slow, flights
-   wander), so the fill is closed-loop instead — every frame each letter
-   is counted, and a letter may launch more birds only while it is not
-   ahead of the emptiest one. All glyphs fill at the pace of the slowest:
-   equal from the first bird, by construction */
-let letQuota = new Float32Array(0), letIn = new Int32Array(0), letGate = new Uint8Array(0);
+/* the census, and the servo that acts on it.
+
+   Dealing an equal share per ink-area at summon time is not enough: the
+   deal is a prediction, and the flight falsifies it. Birds are swept off
+   by the current, blown out by a whim, shoved through a thin stroke by
+   the crowd, or simply never arrive — so a glyph that was handed its fair
+   share can still stand half empty while its neighbour is packed.
+
+   So the split is held CLOSED-LOOP. Every few frames each letter's birds
+   are counted, and the most crowded glyph hands a few of its own to the
+   most starved one. Loose birds go first — a bird already standing in a
+   finished stroke is not yanked out of it unless the imbalance is bad.
+   The word converges on equal density and STAYS there, whatever the
+   physics does to it. */
+let letQuota = new Float32Array(0), letIn = new Int32Array(0);
+const insideB = new Uint8Array(MAXB);      // is this bird standing on its own glyph
 function sizeGate(n){
   if (letQuota.length >= n) return;
-  letQuota = new Float32Array(n); letIn = new Int32Array(n); letGate = new Uint8Array(n);
+  letQuota = new Float32Array(n); letIn = new Int32Array(n);
 }
-let fillMinR = 0, formMax = 0;
+let fillMinR = 0, fillMaxR = 0, formMax = 0, rbCur = 0;
+/* GATHERING — the fix for the uneven opening.
+
+   A glyph cannot be given a bird before one can physically fly to it, and
+   the flock starts as a tight knot while the sentence spans the screen. So
+   for as long as joining the letter and flying to the letter were the same
+   act, the near glyphs were always dense first and the far ones empty: no
+   deal, schedule or servo can outrun that, they only shuffle birds that
+   have already arrived somewhere.
+
+   So flying into the letter and BEING the letter are split. Every word
+   bird sets off for its own glyph at once — it has to, because a bird only
+   yields its personal space as it joins, and at full spacing the flock
+   needs some fourteen times the area the word's ink actually has: it
+   cannot assemble into the shape at all until then. What waits is the INK.
+   Through the gathering the flock is still drawn as a murmuration, and
+   what you watch is a cloud taking the shape of the sentence. Only once it
+   has ARRIVED does the word take ink — everywhere at once, every glyph at
+   its own full density. The opening is even by construction, because there
+   is no half-drawn opening to be uneven. */
+const GMARG = 80, GREADY = 0.86;           // a bird counts as assembled once
+                                           // it is within this of its letter;
+                                           // the flock forms when this many are
+let gathFrac = 0;
+function countGathered(){
+  let n = 0;
+  for (let i = 0; i < nT; i++){
+    const l = lb[i], x = px[i], y = py[i];
+    if (x > letL[l] - GMARG && x < letR[l] + GMARG &&
+        y > letT[l] - GMARG && y < letB[l] + GMARG) n++;
+  }
+  gathFrac = n/Math.max(1, nT);
+}
 function countFill(){
   letIn.fill(0, 0, nLet);
   for (let i = 0; i < nT; i++){
+    insideB[i] = 0;
     if (fw[i] < 0.5) continue;
     const gx = (px[i] - SOX)/SCELL, gy = (py[i] - SOY)/SCELL;
     if (gx >= 1 && gy >= 1 && gx < SGW - 1 && gy < SGH - 1 && SDF[(gy|0)*SGW + (gx|0)] <= 0.6){
       const l = lb[i];
-      if (!(px[i] < letL[l] - 12 || px[i] > letR[l] + 12 || py[i] < letT[l] - 12 || py[i] > letB[l] + 12)) letIn[l]++;
+      if (!(px[i] < letL[l] - 12 || px[i] > letR[l] + 12 || py[i] < letT[l] - 12 || py[i] > letB[l] + 12)){
+        letIn[l]++; insideB[i] = 1;
+      }
     }
   }
-  fillMinR = 9;
-  for (let l = 0; l < nLet; l++){ const r = letIn[l]/letQuota[l]; if (r < fillMinR) fillMinR = r; }
-  for (let l = 0; l < nLet; l++) letGate[l] = letIn[l]/letQuota[l] <= fillMinR + 0.06 ? 1 : 0;
+  fillMinR = 9; fillMaxR = 0;
+  for (let l = 0; l < nLet; l++){
+    const r = letIn[l]/letQuota[l];
+    if (r < fillMinR) fillMinR = r;
+    if (r > fillMaxR) fillMaxR = r;
+  }
+}
+function rebalance(){
+  let worst = -1, wr = 9, rich = -1, rr = -9;
+  for (let l = 0; l < nLet; l++){
+    const r = letIn[l]/letQuota[l];
+    if (r < wr){ wr = r; worst = l; }
+    if (r > rr){ rr = r; rich = l; }
+  }
+  if (worst < 0 || rich === worst) return;
+  const gap = rr - wr;
+  if (gap < 0.05) return;                  // close enough; do not fidget
+  const anyBird = gap > 0.15;              // badly off: take placed birds too
+  let moved = 0, scanned = 0;
+  while (scanned < nT && moved < 24){
+    const i = rbCur; rbCur = rbCur + 1 < nT ? rbCur + 1 : 0; scanned++;
+    if (lb[i] !== rich) continue;
+    if (!anyBird && insideB[i]) continue;
+    lb[i] = worst; hom[i] = pickHome(worst); insideB[i] = 0;
+    moved++;
+  }
 }
 
 /* the glyph is set in real bold type, rasterized to a coarse grid, and
@@ -419,50 +491,46 @@ function summon(text){
   // x, the leftmost slice feeds the leftmost glyph and so on — equal
   // counts, and every letter draws its own local stream at the same rate
   // (blind round-robin let the letters nearest the cloud fill first)
-  const idx = new Array(nT);
-  for (let k = 0; k < nT; k++) idx[k] = k;
-  idx.sort((a, b) => px[a] - px[b]);
-  // each letter's share of the flock is PROPORTIONAL TO ITS INK AREA —
-  // uniform density everywhere: a fat O and a thin I read the same
   const quota = letQuota;
   for (let k = 0; k < nLet; k++)
     quota[k] = Math.max(1, (homeStart[k + 1] - homeStart[k])/nHomes*nT);
+  const capL = new Int32Array(nLet);
+  { let t = 0;
+    for (let l = 0; l < nLet; l++){ capL[l] = Math.floor(quota[l]); t += capL[l]; }
+    for (let l = 0; t < nT; l = (l + 1) % nLet){ capL[l]++; t++; } }
+  const lcx = new Float32Array(nLet), lcy = new Float32Array(nLet);
+  for (let l = 0; l < nLet; l++){ lcx[l] = (letL[l] + letR[l])/2; lcy[l] = (letT[l] + letB[l])/2; }
+
+  // the deal goes by PROXIMITY, nearest letter that still has room. The old
+  // deal sliced the flock on x alone — with the sentence stacked on three
+  // lines, a bird at the top of the cloud could be posted to a letter on the
+  // bottom one, so travel times per glyph differed several-fold and no
+  // schedule could hide it
   const dst = new Float32Array(nT);
-  let di = 0, cum = quota[dealOrd[0]];
-  for (let r = 0; r < nT; r++){
-    while (r >= cum && di < nLet - 1){ di++; cum += quota[dealOrd[di]]; }
-    const i = idx[r], l = dealOrd[di];
-    fw[i] = 0; lb[i] = l; hom[i] = pickHome(l);
+  for (let i = 0; i < nT; i++){
+    let best = -1, bd = 1e30;
+    for (let l = 0; l < nLet; l++){
+      if (!capL[l]) continue;
+      const dx = lcx[l] - px[i], dy = lcy[l] - py[i], d = dx*dx + dy*dy;
+      if (d < bd){ bd = d; best = l; }
+    }
+    if (best < 0) best = 0;
+    capL[best]--;
+    fw[i] = 0; lb[i] = best; hom[i] = pickHome(best);
     const ddx = homes[hom[i]*2] - px[i], ddy = homes[hom[i]*2 + 1] - py[i];
     dst[i] = Math.sqrt(ddx*ddx + ddy*ddy);
   }
-  // arrivals are SCHEDULED, not launches: within each letter the birds are
-  // ranked by distance and handed evenly spaced arrival slots across one
-  // shared window — near birds early, far birds late — so every glyph
-  // gains birds at the same steady rate from the first frame to the last
-  // (a stagger that lands everyone together lets the far letters' birds
-  // all go at once and arrive as a wave). The launch is the slot minus
-  // the flight, at the actual cruise times 0.4: nobody flies a straight
-  // line. The window is the 95th-percentile flight (one straggler must
-  // not stretch it) and the gate below corrects what this guess misses
+
+  // no arrival schedule any more — gathering makes one unnecessary. The
+  // per-bird delay is now only a soft edge on the joining, a couple of
+  // dozen frames of scatter so the word does not snap into being
   const spd = CRUISE*P.tempo*0.4;
   const ds = dst.slice().sort();
-  const TF = ds[Math.min(nT - 1, (nT*0.95)|0)]/spd;
-  const byL = Array.from({ length: nLet }, () => []);
-  for (let i = 0; i < nT; i++) byL[lb[i]].push(i);
-  let fdmax = 0;
-  for (const arr of byL){
-    arr.sort((a, b) => dst[a] - dst[b]);
-    const n = arr.length;
-    for (let k = 0; k < n; k++){
-      const i = arr[k];
-      fd[i] = Math.max(0, TF*(k + 0.5)/n - dst[i]/spd) + rnd()*12;
-      if (fd[i] > fdmax) fdmax = fd[i];
-    }
-  }
-  MODE = 'form'; modeT = (fdmax + RAMP + 40)|0; formClock = 0;
-  formMax = modeT*3;                       // the gate may stretch the window, within reason
-  letGate.fill(1, 0, nLet);
+  for (let i = 0; i < nT; i++) fd[i] = rnd()*RAMP*0.5;
+  // give the gathering long enough for the 95th-percentile flight, with
+  // slack — but it normally ends early, on the readiness check
+  const gmax = (ds[Math.min(nT - 1, (nT*0.95)|0)]/spd)*1.7 + 150;
+  MODE = 'gather'; modeT = gmax|0; formClock = 0; gathFrac = 0;
   return true;
 }
 function release(){
@@ -506,6 +574,13 @@ function step(){
       const t = queued || (P.words ? WORDS[wi++ % WORDS.length] : null); queued = null;
       if (!t || !summon(t)) modeT = 120;
     }
+  } else if (MODE === 'gather'){
+    // the flock is taking the shape of the sentence; no ink yet. The word
+    // waits on its EMPTIEST glyph, so none of them can open half-drawn
+    if ((frame & 3) === 0) countGathered();
+    if (modeT <= 0 || gathFrac >= GREADY){
+      MODE = 'form'; modeT = (RAMP + 40)|0; formClock = 0; formMax = modeT*3;
+    }
   } else if (MODE === 'form'){
     // the word is up when the emptiest letter is nearly full, or at the cap
     if (modeT <= 0 && (fillMinR >= 0.8 || formClock > formMax)){ MODE = 'hold'; modeT = ((P.hold + 0.12*lastLen)*60)|0; }
@@ -515,7 +590,7 @@ function step(){
     if (modeT <= 0){ nT = 0; MODE = 'free'; modeT = queued ? 30 : (P.mhold*60)|0; }
   }
 
-  if (nT && SDF && (MODE === 'form' || MODE === 'hold') && (frame & 3) === 0) countFill();
+  if (nT && SDF && MODE !== 'free' && MODE !== 'release' && (frame & 3) === 0){ countFill(); rebalance(); }
   const whimOn = WHIM.dur > 0, wl = Math.min(WHIM.i, COUNT - 1);
   const wcx = px[wl], wcy = py[wl], wcz = pz[wl];
   const wg = whimOn ? 0.18*Math.sin(Math.PI*WHIM.age/WHIM.total) : 0;
@@ -543,10 +618,12 @@ function step(){
     let w = 0;
     if (i < nT){
       if (MODE === 'release'){ if (formClock > fd[i] && fw[i] > 0) fw[i] = Math.max(0, fw[i] - 1/RAMP); }
-      else if (formClock > fd[i] && fw[i] < 1 && (fw[i] > 0 || letGate[lb[i]])) fw[i] = Math.min(1, fw[i] + 1/RAMP);
+      else if (MODE !== 'gather' && formClock > fd[i] && fw[i] < 1) fw[i] = Math.min(1, fw[i] + 1/RAMP);
       const f = fw[i]; w = f*f*(3 - 2*f);        // smoothstep: ease in, ease out
     }
     const wflock = 1 - w;
+    // this bird is spoken for by a glyph — gathering to it, or already in it
+    const wordNow = i < nT && (MODE === 'gather' || MODE === 'form' || MODE === 'hold');
 
     if (((i + frame) & 3) === 0){
       const ix = Math.floor(x/CELL), iy = Math.floor(y/CELL), iz = Math.floor(z/CELL);
@@ -670,7 +747,22 @@ function step(){
       // abandon half the word, brief enough that nobody ever arrives
       if (dh > 10){ const p = (commuting ? 0.5 : 0.24)*w/dh; fx += dhx*p; fy += dhy*p; }
     }
-    if (wflock > 0.001){
+    // GATHERING: drawn to its own glyph, but not yet part of it — still at
+    // full personal space, so it cannot pack into the stroke and instead
+    // settles into a loose knot beside the letter. The sentence assembles
+    // as a row of small murmurations, one per glyph, each already holding
+    // its own share. Then they all close into ink together
+    if (wordNow && w < 0.999){
+      const hx = homes[hom[i]*2], hy = homes[hom[i]*2 + 1];
+      const dhx = hx - x, dhy = hy - y;
+      const dh = Math.sqrt(dhx*dhx + dhy*dhy) || 1;
+      const p = P.gath*(1 - w)/dh;
+      fx += dhx*p; fy += dhy*p;
+      const dz0 = z - 1050;
+      fz -= Math.max(-0.3, Math.min(0.3, dz0*0.03))*(1 - w);
+    }
+    // the roost keeps only the birds no glyph has claimed
+    if (wflock > 0.001 && !wordNow){
       const dx = anchor.x - x, dy = anchor.y - y, dz = anchor.z - z;
       const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
       if (d > DEAD){ const p = (d - DEAD)*WR/d*wflock; fx += dx*p; fy += dy*p; fz += dz*p; }
@@ -775,7 +867,12 @@ function render(){
     const b5 = z < 800 ? 0 : z < 1000 ? 1 : z < 1200 ? 2 : z < 1400 ? 3 : 4;
     const bt = fear[i] > 0.3 ? b5 + 5 : b5;
     // in the letter state at all = ink, wherever it is standing
-    const ink = inkOn && i < nT && fw[i] > 0.5;
+    // claimed by a glyph = drawn as a worm, all the way through: gathering,
+    // closing in and standing. Keying this on fw meant the tail vanished for
+    // the length of the join ramp — fw restarts at 0 when the letters close —
+    // and grew back only once it passed halfway. Only the release lets go,
+    // each bird dropping its tail as it detaches
+    const ink = inkOn && i < nT && (MODE !== 'release' || fw[i] > 0.5);
     if (ink && fxOn){
       // a word bird is a worm: only its index is kept, the body is read
       // back out of the ring at draw time
@@ -998,9 +1095,12 @@ if (mSteps){
       if (gx >= 1 && gy >= 1 && gx < SGW - 1 && gy < SGH - 1 && SDF[(gy|0)*SGW + (gx|0)] <= 0.6){ inside++; inL[lb[i]]++; } }
   }
   // per-letter fill relative to its area share: 1 = its fair share is in
+  // the honest fill: only birds that have actually JOINED the word (drawn
+  // as ink) and stand on their own glyph — countFill already keeps it
+  countFill();
   let fillMin = 9, fillMax = 0;
   for (let l = 0; l < nLet; l++){
-    const r = inL[l]/((homeStart[l + 1] - homeStart[l])/nHomes*Math.max(1, nT));
+    const r = letIn[l]/letQuota[l];
     if (r < fillMin) fillMin = r; if (r > fillMax) fillMax = r;
   }
   document.title = `${MODE} ${lastText} in=${(100*inside/Math.max(1,nT))|0}% fill=${fillMin.toFixed(2)}..${fillMax.toFixed(2)} sdf[${minS|0},${maxS|0}] neg=${neg} grid=${SGW}x${SGH} nLet=${nLet} ` +
